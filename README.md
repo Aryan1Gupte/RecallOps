@@ -17,9 +17,11 @@ The cloud, database, model, memory, authentication, and deployment integrations 
 ## Prerequisites
 
 - Git
-- Python 3.9 or newer
-- Node.js 20.19 or newer
+- Python 3.12
+- Node.js 24
 - npm
+
+The repository-root `.python-version` and `.nvmrc` files document the backend and frontend runtime versions. Version managers such as pyenv and nvm can read these files; before creating the backend virtual environment or installing frontend packages, confirm that your active runtimes report Python 3.12 and Node.js 24.
 
 ## Backend setup and startup
 

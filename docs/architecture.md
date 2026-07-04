@@ -27,3 +27,7 @@ The initial scaffold deliberately excludes all cloud, model, database, MCP, auth
 - The application will control agent steps, tool permissions, persistence, and observability.
 
 These boundaries are design intentions, not implemented components.
+
+## Memory retrieval and ranking
+
+The provisional two-stage retrieval, deterministic ranking, supersession, explainability, and fair-comparison design is recorded in [ADR 0002: Memory retrieval and deterministic ranking](decisions/0002-memory-retrieval-and-ranking.md). It is an architecture proposal only and is not implemented in the current scaffold.
