@@ -1,0 +1,4 @@
+RecallOps schema migrations are managed by Alembic.
+
+The database URL is read from DATABASE_URL through recallops.config at runtime.
+No connection URL is stored in alembic.ini.

@@ -1,12 +1,14 @@
 # RecallOps Architecture
 
-> **Status: Provisional.** This document describes the intended direction for the project. Only the local FastAPI and React scaffolds exist today, and the architecture will evolve as the team validates the incident-response workflow.
+> **Status: Provisional.** This document describes the intended direction for the project. The FastAPI service now has a CockroachDB persistence foundation and basic incident CRUD; the broader architecture will evolve as the team validates the incident-response workflow.
 
 ## Initial system shape
 
 RecallOps is planned as a web application with a React client and a FastAPI service. The application service will own the incident-response agent loop and coordinate model calls, memory extraction, retrieval, and persistence through explicit interfaces.
 
-The initial scaffold deliberately excludes all cloud, model, database, MCP, authentication, and deployment integrations.
+CockroachDB Cloud is the implemented persistence layer for incidents. Synchronous SQLAlchemy sessions sit behind repository functions, Alembic owns schema changes, and FastAPI dependencies provide request-scoped sessions. AI models, embeddings, vector search, memory, MCP, authentication, frontend integration, agent logic, and deployment remain unimplemented.
+
+The initial persistence choices are recorded in [ADR 0003: Initial synchronous persistence foundation](decisions/0003-initial-persistence.md).
 
 ## Provisional technology decisions
 

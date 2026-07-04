@@ -1,18 +1,18 @@
 # RecallOps
 
-RecallOps is a planned AI incident-response application that helps teams investigate incidents and learn from prior outcomes. This repository currently contains only the initial local development scaffold: a minimal FastAPI backend and a minimal React frontend.
+RecallOps is a planned AI incident-response application that helps teams investigate incidents and learn from prior outcomes. The current implementation provides a FastAPI backend with CockroachDB Cloud persistence and basic incident creation and retrieval, plus a minimal React frontend.
 
 ## Planned technology stack
 
 - React, TypeScript, and Vite for the frontend
 - Python and FastAPI for the backend
 - Amazon Bedrock for chat-model and embedding calls
-- CockroachDB Cloud for structured data and vector memory
+- CockroachDB Cloud for implemented incident persistence and planned vector memory
 - CockroachDB Distributed Vector Indexing for semantic recall
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-The cloud, database, model, memory, authentication, and deployment integrations are not implemented yet.
+AI models, embeddings, memory, vector search, MCP, authentication, and deployment integrations are not implemented yet.
 
 ## Prerequisites
 
@@ -31,10 +31,10 @@ From the repository root:
 python3 -m venv backend/.venv
 source backend/.venv/bin/activate
 python -m pip install -e 'backend[dev]'
-uvicorn recallops.main:app --reload
+uvicorn recallops.main:app --reload --env-file .env
 ```
 
-The API is available at `http://127.0.0.1:8000`. Its health endpoint is `http://127.0.0.1:8000/api/health`.
+The API is available at `http://127.0.0.1:8000`. Process health is available at `http://127.0.0.1:8000/api/health`, while database health is checked separately at `http://127.0.0.1:8000/api/health/database`.
 
 Run the backend tests with the virtual environment active:
 
@@ -63,4 +63,63 @@ npm run build
 
 ## Environment configuration
 
-The scaffold reads `APP_NAME`, `APP_ENV`, and `API_PREFIX` from the process environment and provides local-development defaults for each. `.env.example` documents the supported values and contains no credentials. To use a local `.env` file, copy the example and start Uvicorn with `--env-file .env`; otherwise the standard startup command above works with the defaults.
+Create a local environment file from the safe template:
+
+```bash
+cp .env.example .env
+```
+
+Replace the fictional `DATABASE_URL` placeholder in `.env` with the CockroachDB Cloud connection URL. Preserve `sslmode=verify-full`. **Never commit `.env` or paste its contents into logs, issues, or chat.** The file is ignored by Git.
+
+`APP_NAME`, `APP_ENV`, and `API_PREFIX` have development defaults. `DATABASE_URL` is required only when an endpoint, health check, or migration starts database functionality.
+
+## Database migrations
+
+Alembic owns database schema changes. From the repository root, apply all migrations while loading the ignored local `.env` file without placing the connection URL in `alembic.ini`:
+
+```bash
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/alembic -c backend/alembic.ini upgrade head
+```
+
+Inspect the current migration revision with:
+
+```bash
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/alembic -c backend/alembic.ini current
+```
+
+API tests use isolated in-memory SQLite through FastAPI dependency overrides. They never read, modify, or depend on the real CockroachDB Cloud database. The Alembic migration and database-health endpoint validate real CockroachDB compatibility separately.
+
+## Incident API examples
+
+Create a fictional incident:
+
+```bash
+curl --request POST http://127.0.0.1:8000/api/incidents \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "title": "Checkout latency in fictional store",
+    "description": "Example requests are exceeding the fictional latency budget.",
+    "service": "checkout-api",
+    "environment": "production"
+  }'
+```
+
+List incidents:
+
+```bash
+curl http://127.0.0.1:8000/api/incidents
+```
+
+Retrieve an incident by replacing the placeholder with an ID returned by the create request:
+
+```bash
+curl http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000
+```
+
+Check database reachability without exposing connection details:
+
+```bash
+curl http://127.0.0.1:8000/api/health/database
+```
