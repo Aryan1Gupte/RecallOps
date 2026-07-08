@@ -1,5 +1,6 @@
 """Pydantic request and response schemas."""
 
+from recallops.schemas.analysis import IncidentAnalysisResponse, ModelAnalysisPayload
 from recallops.schemas.incident import (
     IncidentCreate,
     IncidentEnvironment,
@@ -8,8 +9,10 @@ from recallops.schemas.incident import (
 )
 
 __all__ = [
+    "IncidentAnalysisResponse",
     "IncidentCreate",
     "IncidentEnvironment",
     "IncidentResponse",
     "IncidentStatus",
+    "ModelAnalysisPayload",
 ]

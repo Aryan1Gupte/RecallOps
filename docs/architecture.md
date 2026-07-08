@@ -1,14 +1,16 @@
 # RecallOps Architecture
 
-> **Status: Provisional.** This document describes the intended direction for the project. The FastAPI service now has a CockroachDB persistence foundation and basic incident CRUD; the broader architecture will evolve as the team validates the incident-response workflow.
+> **Status: Provisional.** This document describes the intended direction for the project. The application now has CockroachDB-backed incident CRUD and on-demand Amazon Bedrock analysis; the broader architecture will evolve as the team validates the incident-response workflow.
 
 ## Initial system shape
 
 RecallOps is planned as a web application with a React client and a FastAPI service. The application service will own the incident-response agent loop and coordinate model calls, memory extraction, retrieval, and persistence through explicit interfaces.
 
-CockroachDB Cloud is the implemented persistence layer for incidents. Synchronous SQLAlchemy sessions sit behind repository functions, Alembic owns schema changes, and FastAPI dependencies provide request-scoped sessions. AI models, embeddings, vector search, memory, MCP, authentication, frontend integration, agent logic, and deployment remain unimplemented.
+CockroachDB Cloud is the implemented persistence layer for incidents. Synchronous SQLAlchemy sessions sit behind repository functions, Alembic owns schema changes, and FastAPI dependencies provide request-scoped sessions. Amazon Bedrock Runtime provides validated, on-demand incident analysis behind a provider-neutral interface; analysis is not persisted. Embeddings, vector search, memory, MCP, authentication, agent tool execution, and deployment remain unimplemented.
 
 The initial persistence choices are recorded in [ADR 0003: Initial synchronous persistence foundation](decisions/0003-initial-persistence.md).
+
+The initial AI integration choices are recorded in [ADR 0004: On-demand Bedrock incident analysis](decisions/0004-on-demand-bedrock-analysis.md).
 
 ## Provisional technology decisions
 

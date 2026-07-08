@@ -24,6 +24,16 @@ export interface IncidentCreateInput {
   environment: IncidentEnvironment
 }
 
+export interface IncidentAnalysis {
+  incident_id: string
+  summary: string
+  likely_category: string
+  hypotheses: string[]
+  recommended_next_steps: string[]
+  cautions: string[]
+  model_id: string
+}
+
 const API_BASE_PATH = '/api'
 
 class IncidentApiError extends Error {
@@ -40,8 +50,11 @@ function messageForStatus(status: number): string {
   if (status === 422) {
     return 'Please check the incident details and try again.'
   }
+  if (status === 502) {
+    return 'The AI analysis service could not produce a valid result. Please try again.'
+  }
   if (status === 503) {
-    return 'RecallOps cannot reach its database right now. Please try again shortly.'
+    return 'RecallOps is temporarily unavailable. Please try again shortly.'
   }
   return 'RecallOps could not complete the request. Please try again.'
 }
@@ -84,4 +97,11 @@ export function createIncident(input: IncidentCreateInput): Promise<Incident> {
 
 export function getIncident(id: string): Promise<Incident> {
   return request<Incident>(`/incidents/${encodeURIComponent(id)}`)
+}
+
+export function analyzeIncident(id: string): Promise<IncidentAnalysis> {
+  return request<IncidentAnalysis>(
+    `/incidents/${encodeURIComponent(id)}/analysis`,
+    { method: 'POST' },
+  )
 }

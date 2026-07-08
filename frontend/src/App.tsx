@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import {
+  analyzeIncident,
   createIncident,
   getIncident,
   listIncidents,
   type Incident,
+  type IncidentAnalysis,
   type IncidentCreateInput,
   type IncidentEnvironment,
 } from './api/incidents'
@@ -51,7 +53,11 @@ export default function App() {
   const [listError, setListError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [analysis, setAnalysis] = useState<IncidentAnalysis | null>(null)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const detailRequestId = useRef(0)
+  const analysisRequestId = useRef(0)
 
   useEffect(() => {
     let isActive = true
@@ -112,9 +118,13 @@ export default function App() {
         ...current.filter((incident) => incident.id !== created.id),
       ])
       detailRequestId.current += 1
+      analysisRequestId.current += 1
       setSelectedIncident(created)
       setListError(null)
       setDetailError(null)
+      setAnalysis(null)
+      setAnalysisError(null)
+      setIsAnalyzing(false)
       setForm(emptyForm)
     } catch (error) {
       setFormError(readableError(error))
@@ -126,9 +136,13 @@ export default function App() {
   async function handleSelect(incident: Incident) {
     const requestId = detailRequestId.current + 1
     detailRequestId.current = requestId
+    analysisRequestId.current += 1
     setSelectedIncident(incident)
     setIsDetailLoading(true)
     setDetailError(null)
+    setAnalysis(null)
+    setAnalysisError(null)
+    setIsAnalyzing(false)
 
     try {
       const detail = await getIncident(incident.id)
@@ -142,6 +156,33 @@ export default function App() {
     } finally {
       if (detailRequestId.current === requestId) {
         setIsDetailLoading(false)
+      }
+    }
+  }
+
+  async function handleAnalyze() {
+    if (!selectedIncident) {
+      return
+    }
+
+    const requestId = analysisRequestId.current + 1
+    analysisRequestId.current = requestId
+    const incidentId = selectedIncident.id
+    setIsAnalyzing(true)
+    setAnalysisError(null)
+
+    try {
+      const result = await analyzeIncident(incidentId)
+      if (analysisRequestId.current === requestId) {
+        setAnalysis(result)
+      }
+    } catch (error) {
+      if (analysisRequestId.current === requestId) {
+        setAnalysisError(readableError(error))
+      }
+    } finally {
+      if (analysisRequestId.current === requestId) {
+        setIsAnalyzing(false)
       }
     }
   }
@@ -341,6 +382,79 @@ export default function App() {
                     <dd>{formatDate(selectedIncident.updated_at)}</dd>
                   </div>
                 </dl>
+
+                <section className="analysis-section" aria-labelledby="analysis-heading">
+                  <div className="analysis-heading-row">
+                    <div>
+                      <p className="section-kicker">On-demand</p>
+                      <h3 id="analysis-heading">AI analysis</h3>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void handleAnalyze()}
+                      disabled={isAnalyzing}
+                    >
+                      {isAnalyzing ? 'Analyzing…' : 'Analyze with AI'}
+                    </button>
+                  </div>
+
+                  {analysisError && (
+                    <p className="message message-error" role="alert">
+                      {analysisError}
+                    </p>
+                  )}
+
+                  {!analysis && !analysisError && !isAnalyzing && (
+                    <p className="analysis-placeholder">
+                      Generate a structured first-pass analysis for this incident.
+                    </p>
+                  )}
+
+                  {analysis && (
+                    <div className="analysis-content">
+                      <div className="analysis-summary">
+                        <span className="analysis-label">Likely category</span>
+                        <strong>{analysis.likely_category}</strong>
+                        <p>{analysis.summary}</p>
+                      </div>
+
+                      <div className="analysis-grid">
+                        <div>
+                          <h4>Hypotheses</h4>
+                          <ul>
+                            {analysis.hypotheses.map((hypothesis) => (
+                              <li key={hypothesis}>{hypothesis}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <h4>Recommended next steps</h4>
+                          <ol>
+                            {analysis.recommended_next_steps.map((step) => (
+                              <li key={step}>{step}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      </div>
+
+                      <div className="analysis-cautions">
+                        <h4>Cautions</h4>
+                        {analysis.cautions.length > 0 ? (
+                          <ul>
+                            {analysis.cautions.map((caution) => (
+                              <li key={caution}>{caution}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>No specific cautions returned.</p>
+                        )}
+                      </div>
+
+                      <p className="model-id">Model: {analysis.model_id}</p>
+                    </div>
+                  )}
+                </section>
               </article>
             )}
           </section>
