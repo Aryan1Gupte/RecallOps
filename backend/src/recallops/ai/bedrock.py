@@ -3,10 +3,9 @@
 from functools import lru_cache
 from typing import Any
 
-import boto3
-from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+from recallops.ai.bedrock_client import BedrockClientError, build_bedrock_runtime_client
 from recallops.ai.parsing import AnalysisResponseError, parse_analysis_payload
 from recallops.ai.prompts import (
     INCIDENT_ANALYSIS_SYSTEM_PROMPT,
@@ -72,15 +71,7 @@ def build_incident_analysis_service() -> IncidentAnalysisService:
 
     bedrock_settings = get_settings().require_bedrock()
     try:
-        client = boto3.client(
-            "bedrock-runtime",
-            region_name=bedrock_settings.region,
-            config=Config(
-                connect_timeout=5,
-                read_timeout=60,
-                retries={"mode": "standard", "total_max_attempts": 3},
-            ),
-        )
-    except BotoCoreError:
+        client = build_bedrock_runtime_client(bedrock_settings.region)
+    except BedrockClientError:
         raise AnalysisServiceError("Bedrock client configuration failed") from None
     return BedrockIncidentAnalysisService(client, bedrock_settings.model_id)

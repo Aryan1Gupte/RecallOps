@@ -4,20 +4,23 @@ from functools import lru_cache
 from typing import Any
 import json
 
-import boto3
-from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+from recallops.ai.bedrock_client import BedrockClientError, build_bedrock_runtime_client
 from recallops.ai.embedding_protocols import (
+    EMBEDDING_DIMENSIONS,
     EmbeddingInputError,
     EmbeddingResult,
-    EmbeddingService,
     EmbeddingServiceError,
     EmbeddingValidationError,
 )
 from recallops.config import get_settings
 
-TITAN_EMBEDDING_DIMENSIONS = 1024
+# A preview is a convenience feature, not a critical path: fail faster and
+# retry less than the chat-analysis client so a slow Bedrock call can't tie
+# up FastAPI's shared worker thread pool for as long.
+EMBEDDING_READ_TIMEOUT_SECONDS = 20
+EMBEDDING_MAX_ATTEMPTS = 2
 
 
 class BedrockTitanEmbeddingService:
@@ -35,7 +38,7 @@ class BedrockTitanEmbeddingService:
         request_body = json.dumps(
             {
                 "inputText": input_text,
-                "dimensions": TITAN_EMBEDDING_DIMENSIONS,
+                "dimensions": EMBEDDING_DIMENSIONS,
                 "normalize": True,
                 "embeddingTypes": ["float"],
             }
@@ -52,16 +55,16 @@ class BedrockTitanEmbeddingService:
             raw_vector = payload["embedding"]
             token_count = payload["inputTextTokenCount"]
 
-            if not isinstance(raw_vector, list) or not raw_vector:
-                raise EmbeddingValidationError(
-                    "Embedding provider returned an empty vector"
-                )
             if any(
                 isinstance(value, bool) or not isinstance(value, (int, float))
                 for value in raw_vector
             ):
                 raise EmbeddingValidationError(
                     "Embedding provider returned a non-numeric vector"
+                )
+            if len(raw_vector) != EMBEDDING_DIMENSIONS:
+                raise EmbeddingValidationError(
+                    "Embedding provider returned an unexpected vector dimension"
                 )
             if isinstance(token_count, bool) or not isinstance(token_count, int):
                 raise EmbeddingValidationError(
@@ -70,7 +73,7 @@ class BedrockTitanEmbeddingService:
 
             return EmbeddingResult(
                 vector=tuple(float(value) for value in raw_vector),
-                dimension=TITAN_EMBEDDING_DIMENSIONS,
+                dimension=len(raw_vector),
                 input_text_token_count=token_count,
                 model_id=self._model_id,
             )
@@ -87,20 +90,16 @@ class BedrockTitanEmbeddingService:
 
 
 @lru_cache
-def build_embedding_service() -> EmbeddingService:
+def build_embedding_service() -> BedrockTitanEmbeddingService:
     """Build one lazy Bedrock client using the standard AWS credential chain."""
 
     embedding_settings = get_settings().require_bedrock_embedding()
     try:
-        client = boto3.client(
-            "bedrock-runtime",
-            region_name=embedding_settings.region,
-            config=Config(
-                connect_timeout=5,
-                read_timeout=60,
-                retries={"mode": "standard", "total_max_attempts": 3},
-            ),
+        client = build_bedrock_runtime_client(
+            embedding_settings.region,
+            read_timeout=EMBEDDING_READ_TIMEOUT_SECONDS,
+            max_attempts=EMBEDDING_MAX_ATTEMPTS,
         )
-    except BotoCoreError:
+    except BedrockClientError:
         raise EmbeddingServiceError("Bedrock embedding client failed") from None
     return BedrockTitanEmbeddingService(client, embedding_settings.model_id)

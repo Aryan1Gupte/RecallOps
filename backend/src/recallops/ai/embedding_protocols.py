@@ -1,7 +1,14 @@
 """Provider-neutral embedding boundary and validated internal result."""
 
 from dataclasses import dataclass
-from typing import Protocol
+
+EMBEDDING_DIMENSIONS = 1024
+"""Vector width every embedding provider must produce.
+
+Lives here, not in a provider module, so future consumers (e.g. the
+CockroachDB VECTOR column) can depend on the provider-neutral boundary
+instead of a Titan-specific implementation detail.
+"""
 
 
 class EmbeddingError(RuntimeError):
@@ -42,12 +49,3 @@ class EmbeddingResult:
             )
         if not self.model_id.strip():
             raise EmbeddingValidationError("Embedding model ID must not be blank")
-
-
-class EmbeddingService(Protocol):
-    """Contract implemented by an embedding provider."""
-
-    def embed(self, text: str) -> EmbeddingResult:
-        """Generate one validated embedding for non-empty text."""
-
-        ...

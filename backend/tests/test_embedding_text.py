@@ -1,11 +1,12 @@
-from recallops.ai.embedding_text import (
-    IncidentEmbeddingInput,
-    build_incident_embedding_text,
-)
+from uuid import UUID
+
+from recallops.ai.embedding_text import build_incident_embedding_text
+from recallops.ai.protocols import IncidentAnalysisInput
 
 
 def test_incident_embedding_text_is_deterministic_and_trimmed() -> None:
-    incident = IncidentEmbeddingInput(
+    incident = IncidentAnalysisInput(
+        incident_id=UUID("00000000-0000-0000-0000-000000000001"),
         title="  Checkout latency  ",
         description="  Requests are timing out.  ",
         service="  checkout-api  ",

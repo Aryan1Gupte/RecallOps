@@ -1,20 +1,11 @@
 """Deterministic incident text used for semantic embeddings."""
 
-from dataclasses import dataclass
+from recallops.ai.protocols import IncidentAnalysisInput
 
 EMBEDDING_TEXT_PREVIEW_MAX_CHARS = 1000
 
 
-@dataclass(frozen=True)
-class IncidentEmbeddingInput:
-    title: str
-    description: str
-    service: str
-    environment: str
-    status: str
-
-
-def build_incident_embedding_text(incident: IncidentEmbeddingInput) -> str:
+def build_incident_embedding_text(incident: IncidentAnalysisInput) -> str:
     """Build stable semantic text without IDs, timestamps, or analysis output."""
 
     return "\n".join(

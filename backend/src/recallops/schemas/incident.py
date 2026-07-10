@@ -26,7 +26,7 @@ class IncidentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(max_length=200)
-    description: str
+    description: str = Field(max_length=4000)
     service: str = Field(max_length=100)
     environment: IncidentEnvironment
     status: IncidentStatus = IncidentStatus.OPEN

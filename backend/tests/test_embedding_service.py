@@ -3,14 +3,13 @@ import json
 import pytest
 
 from recallops.ai.embedding_protocols import (
+    EMBEDDING_DIMENSIONS,
     EmbeddingInputError,
     EmbeddingResult,
+    EmbeddingServiceError,
     EmbeddingValidationError,
 )
-from recallops.ai.titan import (
-    TITAN_EMBEDDING_DIMENSIONS,
-    BedrockTitanEmbeddingService,
-)
+from recallops.ai.titan import BedrockTitanEmbeddingService
 
 
 class FakeResponseBody:
@@ -30,7 +29,7 @@ def test_titan_service_requests_normalized_1024_dimension_embedding() -> None:
             return {
                 "body": FakeResponseBody(
                     {
-                        "embedding": [0.0] * TITAN_EMBEDDING_DIMENSIONS,
+                        "embedding": [0.0] * EMBEDDING_DIMENSIONS,
                         "inputTextTokenCount": 12,
                     }
                 )
@@ -41,8 +40,8 @@ def test_titan_service_requests_normalized_1024_dimension_embedding() -> None:
 
     result = service.embed("Fictional incident text")
 
-    assert result.dimension == TITAN_EMBEDDING_DIMENSIONS
-    assert len(result.vector) == TITAN_EMBEDDING_DIMENSIONS
+    assert result.dimension == EMBEDDING_DIMENSIONS
+    assert len(result.vector) == EMBEDDING_DIMENSIONS
     assert result.input_text_token_count == 12
     assert client.request is not None
     request_body = json.loads(str(client.request["body"]))
@@ -59,6 +58,26 @@ def test_titan_service_rejects_empty_input() -> None:
 
     with pytest.raises(EmbeddingInputError):
         service.embed("   ")
+
+
+def test_titan_service_rejects_unexpected_vector_dimension() -> None:
+    class ShortVectorBedrockClient:
+        def invoke_model(self, **kwargs: object) -> dict[str, object]:
+            return {
+                "body": FakeResponseBody(
+                    {
+                        "embedding": [0.0] * (EMBEDDING_DIMENSIONS - 1),
+                        "inputTextTokenCount": 12,
+                    }
+                )
+            }
+
+    service = BedrockTitanEmbeddingService(
+        ShortVectorBedrockClient(), "fake-titan-model"
+    )
+
+    with pytest.raises(EmbeddingServiceError):
+        service.embed("Fictional incident text")
 
 
 def test_embedding_result_rejects_empty_vector() -> None:

@@ -29,33 +29,42 @@ class Settings:
     def require_bedrock(self) -> "BedrockSettings":
         """Return Bedrock settings only when AI functionality needs them."""
 
-        region = self.aws_region.strip() if self.aws_region else ""
-        model_id = (
-            self.bedrock_chat_model_id.strip() if self.bedrock_chat_model_id else ""
+        region, model_id = self._require_region_and_model(
+            self.bedrock_chat_model_id,
+            model_id_env_var="BEDROCK_CHAT_MODEL_ID",
+            purpose="AI analysis",
+            error_cls=BedrockConfigurationError,
         )
-        if not region or not model_id:
-            raise BedrockConfigurationError(
-                "AWS_REGION and BEDROCK_CHAT_MODEL_ID are required for AI analysis"
-            )
-        return BedrockSettings(
-            region=region,
-            model_id=model_id,
-        )
+        return BedrockSettings(region=region, model_id=model_id)
 
     def require_bedrock_embedding(self) -> "BedrockEmbeddingSettings":
         """Return embedding settings only when embedding functionality needs them."""
 
-        region = self.aws_region.strip() if self.aws_region else ""
-        model_id = (
-            self.bedrock_embedding_model_id.strip()
-            if self.bedrock_embedding_model_id
-            else ""
+        region, model_id = self._require_region_and_model(
+            self.bedrock_embedding_model_id,
+            model_id_env_var="BEDROCK_EMBEDDING_MODEL_ID",
+            purpose="embeddings",
+            error_cls=BedrockEmbeddingConfigurationError,
         )
-        if not region or not model_id:
-            raise BedrockEmbeddingConfigurationError(
-                "AWS_REGION and BEDROCK_EMBEDDING_MODEL_ID are required for embeddings"
-            )
         return BedrockEmbeddingSettings(region=region, model_id=model_id)
+
+    def _require_region_and_model(
+        self,
+        model_id: str | None,
+        *,
+        model_id_env_var: str,
+        purpose: str,
+        error_cls: type[RuntimeError],
+    ) -> tuple[str, str]:
+        """Share the strip-and-validate logic every Bedrock feature needs."""
+
+        region = self.aws_region.strip() if self.aws_region else ""
+        stripped_model_id = model_id.strip() if model_id else ""
+        if not region or not stripped_model_id:
+            raise error_cls(
+                f"AWS_REGION and {model_id_env_var} are required for {purpose}"
+            )
+        return region, stripped_model_id
 
 
 @dataclass(frozen=True)

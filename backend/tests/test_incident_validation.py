@@ -37,6 +37,18 @@ def test_incident_input_rejects_blank_text(field: str) -> None:
         IncidentCreate(**payload)
 
 
+def test_incident_input_rejects_description_over_max_length() -> None:
+    payload = {
+        "title": "Checkout latency",
+        "description": "x" * 4001,
+        "service": "checkout-api",
+        "environment": "production",
+    }
+
+    with pytest.raises(ValidationError):
+        IncidentCreate(**payload)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [("status", "closed"), ("environment", "staging")],

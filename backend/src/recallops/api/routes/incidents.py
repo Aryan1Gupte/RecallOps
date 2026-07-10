@@ -14,11 +14,10 @@ from recallops.ai.dependencies import (
 )
 from recallops.ai.embedding_protocols import EmbeddingError
 from recallops.ai.embedding_text import (
-    IncidentEmbeddingInput,
     build_embedding_text_preview,
     build_incident_embedding_text,
 )
-from recallops.ai.protocols import IncidentAnalysisInput
+from recallops.ai.protocols import build_incident_analysis_input
 from recallops.config import (
     BedrockConfigurationError,
     BedrockEmbeddingConfigurationError,
@@ -109,14 +108,7 @@ def analyze_incident_endpoint(
             detail="Incident not found",
         )
 
-    analysis_input = IncidentAnalysisInput(
-        incident_id=incident.id,
-        title=incident.title,
-        description=incident.description,
-        service=incident.service,
-        environment=incident.environment,
-        status=incident.status,
-    )
+    analysis_input = build_incident_analysis_input(incident)
 
     try:
         service = service_factory()
@@ -158,13 +150,7 @@ def preview_incident_embedding_endpoint(
         )
 
     embedding_text = build_incident_embedding_text(
-        IncidentEmbeddingInput(
-            title=incident.title,
-            description=incident.description,
-            service=incident.service,
-            environment=incident.environment,
-            status=incident.status,
-        )
+        build_incident_analysis_input(incident)
     )
 
     try:
