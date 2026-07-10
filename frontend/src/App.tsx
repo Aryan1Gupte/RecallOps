@@ -13,6 +13,13 @@ import {
   type IncidentEmbeddingPreview,
   type IncidentEnvironment,
 } from './api/incidents'
+import {
+  createMemory,
+  listMemories,
+  type Memory,
+  type MemoryCreateInput,
+  type MemoryType,
+} from './api/memories'
 
 const emptyForm: IncidentCreateInput = {
   title: '',
@@ -27,6 +34,34 @@ const environments: IncidentEnvironment[] = [
   'uat',
   'production',
 ]
+
+const memoryTypes: MemoryType[] = [
+  'resolution',
+  'failed_action',
+  'procedure',
+  'observation',
+]
+
+interface MemoryFormState {
+  memory_type: MemoryType
+  summary: string
+  root_cause: string
+  resolution: string
+}
+
+const emptyMemoryForm: MemoryFormState = {
+  memory_type: 'resolution',
+  summary: '',
+  root_cause: '',
+  resolution: '',
+}
+
+function memoryFormForIncident(incident: Incident | null): MemoryFormState {
+  return {
+    ...emptyMemoryForm,
+    summary: incident?.title ?? '',
+  }
+}
 
 function formatDate(value: string): string {
   const date = new Date(value)
@@ -43,6 +78,10 @@ function readableError(error: unknown): string {
   return error instanceof Error
     ? error.message
     : 'Something unexpected happened. Please try again.'
+}
+
+function formatMemoryType(value: MemoryType): string {
+  return value.replace('_', ' ')
 }
 
 export default function App() {
@@ -62,9 +101,17 @@ export default function App() {
     useState<IncidentEmbeddingPreview | null>(null)
   const [embeddingError, setEmbeddingError] = useState<string | null>(null)
   const [isEmbedding, setIsEmbedding] = useState(false)
+  const [memories, setMemories] = useState<Memory[]>([])
+  const [memoryForm, setMemoryForm] =
+    useState<MemoryFormState>(emptyMemoryForm)
+  const [memoryListError, setMemoryListError] = useState<string | null>(null)
+  const [memoryFormError, setMemoryFormError] = useState<string | null>(null)
+  const [isMemoryListLoading, setIsMemoryListLoading] = useState(false)
+  const [isSavingMemory, setIsSavingMemory] = useState(false)
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
+  const memoryRequestId = useRef(0)
 
   useEffect(() => {
     let isActive = true
@@ -100,6 +147,34 @@ export default function App() {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
+  function updateMemoryForm<K extends keyof MemoryFormState>(
+    field: K,
+    value: MemoryFormState[K],
+  ) {
+    setMemoryForm((current) => ({ ...current, [field]: value }))
+  }
+
+  async function refreshMemoriesForIncident(
+    incidentId: string,
+    requestId: number,
+  ) {
+    try {
+      const loadedMemories = await listMemories({ incident_id: incidentId })
+      if (memoryRequestId.current === requestId) {
+        setMemories(loadedMemories)
+        setMemoryListError(null)
+      }
+    } catch (error) {
+      if (memoryRequestId.current === requestId) {
+        setMemoryListError(readableError(error))
+      }
+    } finally {
+      if (memoryRequestId.current === requestId) {
+        setIsMemoryListLoading(false)
+      }
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -127,6 +202,7 @@ export default function App() {
       detailRequestId.current += 1
       analysisRequestId.current += 1
       embeddingRequestId.current += 1
+      memoryRequestId.current += 1
       setSelectedIncident(created)
       setListError(null)
       setDetailError(null)
@@ -136,6 +212,12 @@ export default function App() {
       setEmbeddingPreview(null)
       setEmbeddingError(null)
       setIsEmbedding(false)
+      setMemories([])
+      setMemoryForm(memoryFormForIncident(created))
+      setMemoryListError(null)
+      setMemoryFormError(null)
+      setIsMemoryListLoading(false)
+      setIsSavingMemory(false)
       setForm(emptyForm)
     } catch (error) {
       setFormError(readableError(error))
@@ -149,6 +231,8 @@ export default function App() {
     detailRequestId.current = requestId
     analysisRequestId.current += 1
     embeddingRequestId.current += 1
+    const selectedMemoryRequestId = memoryRequestId.current + 1
+    memoryRequestId.current = selectedMemoryRequestId
     setSelectedIncident(incident)
     setIsDetailLoading(true)
     setDetailError(null)
@@ -158,6 +242,14 @@ export default function App() {
     setEmbeddingPreview(null)
     setEmbeddingError(null)
     setIsEmbedding(false)
+    setMemories([])
+    setMemoryForm(memoryFormForIncident(incident))
+    setMemoryListError(null)
+    setMemoryFormError(null)
+    setIsMemoryListLoading(true)
+    setIsSavingMemory(false)
+
+    void refreshMemoriesForIncident(incident.id, selectedMemoryRequestId)
 
     try {
       const detail = await getIncident(incident.id)
@@ -225,6 +317,57 @@ export default function App() {
     } finally {
       if (embeddingRequestId.current === requestId) {
         setIsEmbedding(false)
+      }
+    }
+  }
+
+  async function handleCreateMemory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!selectedIncident) {
+      return
+    }
+
+    const input: MemoryCreateInput = {
+      incident_id: selectedIncident.id,
+      memory_type: memoryForm.memory_type,
+      summary: memoryForm.summary.trim(),
+    }
+    const rootCause = memoryForm.root_cause.trim()
+    const resolution = memoryForm.resolution.trim()
+    if (rootCause) {
+      input.root_cause = rootCause
+    }
+    if (resolution) {
+      input.resolution = resolution
+    }
+
+    if (!input.summary) {
+      setMemoryFormError('Summary is required.')
+      return
+    }
+
+    const requestId = memoryRequestId.current + 1
+    memoryRequestId.current = requestId
+    setIsSavingMemory(true)
+    setMemoryFormError(null)
+    setMemoryListError(null)
+
+    try {
+      await createMemory(input)
+      if (memoryRequestId.current === requestId) {
+        setMemoryForm(emptyMemoryForm)
+        setIsMemoryListLoading(true)
+      }
+      await refreshMemoriesForIncident(selectedIncident.id, requestId)
+    } catch (error) {
+      if (memoryRequestId.current === requestId) {
+        setMemoryFormError(readableError(error))
+        setIsMemoryListLoading(false)
+      }
+    } finally {
+      if (memoryRequestId.current === requestId) {
+        setIsSavingMemory(false)
       }
     }
   }
@@ -555,6 +698,140 @@ export default function App() {
                       <p className="vector-notice">
                         Vector values are intentionally excluded from this preview.
                       </p>
+                    </div>
+                  )}
+                </section>
+
+                <section className="memory-section" aria-labelledby="memory-heading">
+                  <div className="analysis-heading-row">
+                    <div>
+                      <p className="section-kicker">Long-term memory</p>
+                      <h3 id="memory-heading">Save as memory</h3>
+                    </div>
+                    {isMemoryListLoading && (
+                      <span className="memory-loading">Refreshing…</span>
+                    )}
+                  </div>
+
+                  <form className="memory-form" onSubmit={handleCreateMemory}>
+                    <div className="memory-form-grid">
+                      <label>
+                        Type
+                        <select
+                          value={memoryForm.memory_type}
+                          onChange={(event) =>
+                            updateMemoryForm(
+                              'memory_type',
+                              event.target.value as MemoryType,
+                            )
+                          }
+                        >
+                          {memoryTypes.map((type) => (
+                            <option key={type} value={type}>
+                              {formatMemoryType(type)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        Summary
+                        <textarea
+                          value={memoryForm.summary}
+                          onChange={(event) =>
+                            updateMemoryForm('summary', event.target.value)
+                          }
+                          rows={3}
+                          maxLength={4000}
+                          required
+                        />
+                      </label>
+
+                      <label>
+                        Root cause
+                        <textarea
+                          value={memoryForm.root_cause}
+                          onChange={(event) =>
+                            updateMemoryForm('root_cause', event.target.value)
+                          }
+                          rows={3}
+                          maxLength={4000}
+                        />
+                      </label>
+
+                      <label>
+                        Resolution
+                        <textarea
+                          value={memoryForm.resolution}
+                          onChange={(event) =>
+                            updateMemoryForm('resolution', event.target.value)
+                          }
+                          rows={3}
+                          maxLength={4000}
+                        />
+                      </label>
+                    </div>
+
+                    {memoryFormError && (
+                      <p className="message message-error" role="alert">
+                        {memoryFormError}
+                      </p>
+                    )}
+
+                    <button
+                      className="secondary-button memory-submit"
+                      type="submit"
+                      disabled={isSavingMemory}
+                    >
+                      {isSavingMemory ? 'Saving…' : 'Save memory'}
+                    </button>
+                  </form>
+
+                  {memoryListError && (
+                    <p className="message message-error" role="alert">
+                      {memoryListError}
+                    </p>
+                  )}
+
+                  {!isMemoryListLoading && !memoryListError && memories.length === 0 && (
+                    <p className="analysis-placeholder">
+                      No saved memories for this incident yet.
+                    </p>
+                  )}
+
+                  {memories.length > 0 && (
+                    <div className="memory-list">
+                      {memories.map((memory) => (
+                        <article className="memory-row" key={memory.id}>
+                          <div className="memory-row-heading">
+                            <span className="memory-type">
+                              {formatMemoryType(memory.memory_type)}
+                            </span>
+                            <span className={`memory-status status-${memory.status}`}>
+                              {memory.status}
+                            </span>
+                          </div>
+                          <p>{memory.summary}</p>
+                          <dl className="memory-metadata">
+                            <div>
+                              <dt>Model</dt>
+                              <dd>{memory.embedding_model_id}</dd>
+                            </div>
+                            <div>
+                              <dt>Dimension</dt>
+                              <dd>{memory.embedding_dimension}</dd>
+                            </div>
+                            <div>
+                              <dt>Successes</dt>
+                              <dd>{memory.success_count}</dd>
+                            </div>
+                            <div>
+                              <dt>Failures</dt>
+                              <dd>{memory.failure_count}</dd>
+                            </div>
+                          </dl>
+                        </article>
+                      ))}
                     </div>
                   )}
                 </section>

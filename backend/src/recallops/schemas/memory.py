@@ -1,0 +1,82 @@
+"""Validation contracts for memory API payloads."""
+
+from datetime import datetime
+from enum import StrEnum
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class MemoryType(StrEnum):
+    RESOLUTION = "resolution"
+    FAILED_ACTION = "failed_action"
+    PROCEDURE = "procedure"
+    OBSERVATION = "observation"
+
+
+class MemoryStatus(StrEnum):
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    REJECTED = "rejected"
+
+
+class MemoryCreate(BaseModel):
+    """Client-controlled fields accepted when creating a memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: UUID | None = None
+    memory_type: MemoryType
+    summary: str = Field(max_length=4000)
+    root_cause: str | None = Field(default=None, max_length=4000)
+    resolution: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("memory_type", mode="before")
+    @classmethod
+    def strip_memory_type(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def strip_and_reject_blank_summary(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("must not be blank")
+        return value
+
+    @field_validator("root_cause", "resolution", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+class MemoryResponse(BaseModel):
+    """Public memory representation returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    incident_id: UUID | None
+    memory_type: MemoryType
+    summary: str
+    root_cause: str | None
+    resolution: str | None
+    embedding_text: str
+    embedding_model_id: str
+    embedding_dimension: int
+    success_count: int
+    failure_count: int
+    status: MemoryStatus
+    superseded_by: UUID | None
+    superseded_at: datetime | None
+    supersession_reason: str | None
+    created_at: datetime
+    updated_at: datetime

@@ -8,6 +8,12 @@ from recallops.schemas.incident import (
     IncidentResponse,
     IncidentStatus,
 )
+from recallops.schemas.memory import (
+    MemoryCreate,
+    MemoryResponse,
+    MemoryStatus,
+    MemoryType,
+)
 
 __all__ = [
     "IncidentAnalysisResponse",
@@ -16,5 +22,9 @@ __all__ = [
     "IncidentEnvironment",
     "IncidentResponse",
     "IncidentStatus",
+    "MemoryCreate",
+    "MemoryResponse",
+    "MemoryStatus",
+    "MemoryType",
     "ModelAnalysisPayload",
 ]

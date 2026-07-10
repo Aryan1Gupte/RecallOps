@@ -2,10 +2,11 @@
 
 from fastapi import FastAPI
 
-from recallops.api.routes import health, incidents
+from recallops.api.routes import health, incidents, memories
 from recallops.config import get_settings
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(incidents.router, prefix=settings.api_prefix)
+app.include_router(memories.router, prefix=settings.api_prefix)
