@@ -497,6 +497,14 @@ dd {
   border-top: 1px solid #d9e1db;
 }
 
+.embedding-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid #d9e1db;
+}
+
 .analysis-heading-row {
   display: flex;
   align-items: center;
@@ -606,6 +614,49 @@ dd {
   overflow-wrap: anywhere;
 }
 
+.embedding-content {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.embedding-metadata {
+  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 0.75fr));
+  margin-top: 0;
+}
+
+.embedding-preview-text {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid #d8e0da;
+  border-radius: 0.65rem;
+  background: #f7f9f7;
+}
+
+.embedding-preview-text h4 {
+  margin: 0 0 0.55rem;
+  color: #43544b;
+  font-size: 0.74rem;
+}
+
+.embedding-preview-text pre {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  color: #4f5f56;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vector-notice {
+  margin: 0;
+  color: #758078;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
 @media (max-width: 980px) {
   form,
   .workspace {
@@ -645,7 +696,8 @@ dd {
   .incident-row,
   .incident-row-meta,
   dl,
-  .analysis-grid {
+  .analysis-grid,
+  .embedding-metadata {
     grid-template-columns: 1fr;
   }
 

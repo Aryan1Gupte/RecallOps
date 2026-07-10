@@ -4,11 +4,13 @@ import type { FormEvent } from 'react'
 import {
   analyzeIncident,
   createIncident,
+  generateEmbeddingPreview,
   getIncident,
   listIncidents,
   type Incident,
   type IncidentAnalysis,
   type IncidentCreateInput,
+  type IncidentEmbeddingPreview,
   type IncidentEnvironment,
 } from './api/incidents'
 
@@ -56,8 +58,13 @@ export default function App() {
   const [analysis, setAnalysis] = useState<IncidentAnalysis | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [embeddingPreview, setEmbeddingPreview] =
+    useState<IncidentEmbeddingPreview | null>(null)
+  const [embeddingError, setEmbeddingError] = useState<string | null>(null)
+  const [isEmbedding, setIsEmbedding] = useState(false)
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
+  const embeddingRequestId = useRef(0)
 
   useEffect(() => {
     let isActive = true
@@ -119,12 +126,16 @@ export default function App() {
       ])
       detailRequestId.current += 1
       analysisRequestId.current += 1
+      embeddingRequestId.current += 1
       setSelectedIncident(created)
       setListError(null)
       setDetailError(null)
       setAnalysis(null)
       setAnalysisError(null)
       setIsAnalyzing(false)
+      setEmbeddingPreview(null)
+      setEmbeddingError(null)
+      setIsEmbedding(false)
       setForm(emptyForm)
     } catch (error) {
       setFormError(readableError(error))
@@ -137,12 +148,16 @@ export default function App() {
     const requestId = detailRequestId.current + 1
     detailRequestId.current = requestId
     analysisRequestId.current += 1
+    embeddingRequestId.current += 1
     setSelectedIncident(incident)
     setIsDetailLoading(true)
     setDetailError(null)
     setAnalysis(null)
     setAnalysisError(null)
     setIsAnalyzing(false)
+    setEmbeddingPreview(null)
+    setEmbeddingError(null)
+    setIsEmbedding(false)
 
     try {
       const detail = await getIncident(incident.id)
@@ -183,6 +198,33 @@ export default function App() {
     } finally {
       if (analysisRequestId.current === requestId) {
         setIsAnalyzing(false)
+      }
+    }
+  }
+
+  async function handleEmbeddingPreview() {
+    if (!selectedIncident) {
+      return
+    }
+
+    const requestId = embeddingRequestId.current + 1
+    embeddingRequestId.current = requestId
+    const incidentId = selectedIncident.id
+    setIsEmbedding(true)
+    setEmbeddingError(null)
+
+    try {
+      const result = await generateEmbeddingPreview(incidentId)
+      if (embeddingRequestId.current === requestId) {
+        setEmbeddingPreview(result)
+      }
+    } catch (error) {
+      if (embeddingRequestId.current === requestId) {
+        setEmbeddingError(readableError(error))
+      }
+    } finally {
+      if (embeddingRequestId.current === requestId) {
+        setIsEmbedding(false)
       }
     }
   }
@@ -452,6 +494,67 @@ export default function App() {
                       </div>
 
                       <p className="model-id">Model: {analysis.model_id}</p>
+                    </div>
+                  )}
+                </section>
+
+                <section
+                  className="embedding-section"
+                  aria-labelledby="embedding-heading"
+                >
+                  <div className="analysis-heading-row">
+                    <div>
+                      <p className="section-kicker">Semantic foundation</p>
+                      <h3 id="embedding-heading">Embedding preview</h3>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void handleEmbeddingPreview()}
+                      disabled={isEmbedding}
+                    >
+                      {isEmbedding
+                        ? 'Generating…'
+                        : 'Generate embedding preview'}
+                    </button>
+                  </div>
+
+                  {embeddingError && (
+                    <p className="message message-error" role="alert">
+                      {embeddingError}
+                    </p>
+                  )}
+
+                  {!embeddingPreview && !embeddingError && !isEmbedding && (
+                    <p className="analysis-placeholder">
+                      Generate metadata for the incident&apos;s semantic embedding.
+                      The vector itself remains private to the backend.
+                    </p>
+                  )}
+
+                  {embeddingPreview && (
+                    <div className="embedding-content">
+                      <dl className="embedding-metadata">
+                        <div>
+                          <dt>Model</dt>
+                          <dd>{embeddingPreview.model_id}</dd>
+                        </div>
+                        <div>
+                          <dt>Dimension</dt>
+                          <dd>{embeddingPreview.dimension}</dd>
+                        </div>
+                        <div>
+                          <dt>Input tokens</dt>
+                          <dd>{embeddingPreview.input_text_token_count}</dd>
+                        </div>
+                      </dl>
+                      <div className="embedding-preview-text">
+                        <h4>Deterministic input text</h4>
+                        <pre>{embeddingPreview.text_preview}</pre>
+                      </div>
+                      <p className="vector-notice">
+                        Vector values are intentionally excluded from this preview.
+                      </p>
                     </div>
                   )}
                 </section>

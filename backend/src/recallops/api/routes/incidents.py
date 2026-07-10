@@ -7,11 +7,22 @@ from sqlalchemy.orm import Session
 
 from recallops.ai.bedrock import AnalysisServiceError
 from recallops.ai.dependencies import (
+    EmbeddingServiceFactory,
     IncidentAnalysisServiceFactory,
+    get_embedding_service_factory,
     get_incident_analysis_service_factory,
 )
+from recallops.ai.embedding_protocols import EmbeddingError
+from recallops.ai.embedding_text import (
+    IncidentEmbeddingInput,
+    build_embedding_text_preview,
+    build_incident_embedding_text,
+)
 from recallops.ai.protocols import IncidentAnalysisInput
-from recallops.config import BedrockConfigurationError
+from recallops.config import (
+    BedrockConfigurationError,
+    BedrockEmbeddingConfigurationError,
+)
 from recallops.database.session import get_db
 from recallops.repositories.incidents import (
     IncidentPersistenceError,
@@ -20,6 +31,7 @@ from recallops.repositories.incidents import (
     list_incidents,
 )
 from recallops.schemas.analysis import IncidentAnalysisResponse
+from recallops.schemas.embedding import IncidentEmbeddingPreviewResponse
 from recallops.schemas.incident import IncidentCreate, IncidentResponse
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -119,3 +131,59 @@ def analyze_incident_endpoint(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI analysis is temporarily unavailable",
         ) from None
+
+
+@router.post(
+    "/{incident_id}/embedding-preview",
+    response_model=IncidentEmbeddingPreviewResponse,
+)
+def preview_incident_embedding_endpoint(
+    incident_id: UUID,
+    session: Session = Depends(get_db),
+    service_factory: EmbeddingServiceFactory = Depends(
+        get_embedding_service_factory
+    ),
+) -> IncidentEmbeddingPreviewResponse:
+    """Generate embedding metadata without persisting or returning the vector."""
+
+    try:
+        incident = get_incident(session, incident_id)
+    except IncidentPersistenceError:
+        raise persistence_unavailable() from None
+
+    if incident is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Incident not found",
+        )
+
+    embedding_text = build_incident_embedding_text(
+        IncidentEmbeddingInput(
+            title=incident.title,
+            description=incident.description,
+            service=incident.service,
+            environment=incident.environment,
+            status=incident.status,
+        )
+    )
+
+    try:
+        result = service_factory().embed(embedding_text)
+    except BedrockEmbeddingConfigurationError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Embedding preview is not configured",
+        ) from None
+    except EmbeddingError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Embedding preview is temporarily unavailable",
+        ) from None
+
+    return IncidentEmbeddingPreviewResponse(
+        incident_id=incident.id,
+        model_id=result.model_id,
+        dimension=result.dimension,
+        input_text_token_count=result.input_text_token_count,
+        text_preview=build_embedding_text_preview(embedding_text),
+    )

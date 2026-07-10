@@ -1,0 +1,53 @@
+"""Provider-neutral embedding boundary and validated internal result."""
+
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class EmbeddingError(RuntimeError):
+    """Base safe error for embedding input, provider, or response failures."""
+
+
+class EmbeddingInputError(EmbeddingError):
+    """Raised when embedding input is empty."""
+
+
+class EmbeddingValidationError(EmbeddingError):
+    """Raised when provider output violates the internal embedding contract."""
+
+
+class EmbeddingServiceError(EmbeddingError):
+    """Raised without provider details when an embedding request fails."""
+
+
+@dataclass(frozen=True)
+class EmbeddingResult:
+    """Internal embedding result; vectors never cross the public API boundary."""
+
+    vector: tuple[float, ...]
+    dimension: int
+    input_text_token_count: int
+    model_id: str
+
+    def __post_init__(self) -> None:
+        if not self.vector:
+            raise EmbeddingValidationError("Embedding vector must not be empty")
+        if self.dimension != len(self.vector):
+            raise EmbeddingValidationError(
+                "Embedding dimension must equal vector length"
+            )
+        if self.input_text_token_count < 0:
+            raise EmbeddingValidationError(
+                "Embedding input token count must not be negative"
+            )
+        if not self.model_id.strip():
+            raise EmbeddingValidationError("Embedding model ID must not be blank")
+
+
+class EmbeddingService(Protocol):
+    """Contract implemented by an embedding provider."""
+
+    def embed(self, text: str) -> EmbeddingResult:
+        """Generate one validated embedding for non-empty text."""
+
+        ...

@@ -15,6 +15,7 @@ class Settings:
     database_url: str | None
     aws_region: str | None
     bedrock_chat_model_id: str | None
+    bedrock_embedding_model_id: str | None
 
     def require_database_url(self) -> str:
         """Return the database URL only when database functionality needs it."""
@@ -41,10 +42,33 @@ class Settings:
             model_id=model_id,
         )
 
+    def require_bedrock_embedding(self) -> "BedrockEmbeddingSettings":
+        """Return embedding settings only when embedding functionality needs them."""
+
+        region = self.aws_region.strip() if self.aws_region else ""
+        model_id = (
+            self.bedrock_embedding_model_id.strip()
+            if self.bedrock_embedding_model_id
+            else ""
+        )
+        if not region or not model_id:
+            raise BedrockEmbeddingConfigurationError(
+                "AWS_REGION and BEDROCK_EMBEDDING_MODEL_ID are required for embeddings"
+            )
+        return BedrockEmbeddingSettings(region=region, model_id=model_id)
+
 
 @dataclass(frozen=True)
 class BedrockSettings:
     """Non-secret settings needed to call Amazon Bedrock."""
+
+    region: str
+    model_id: str
+
+
+@dataclass(frozen=True)
+class BedrockEmbeddingSettings:
+    """Non-secret settings needed to call the Bedrock embedding model."""
 
     region: str
     model_id: str
@@ -58,6 +82,10 @@ class BedrockConfigurationError(RuntimeError):
     """Raised safely when lazy Bedrock configuration is incomplete."""
 
 
+class BedrockEmbeddingConfigurationError(RuntimeError):
+    """Raised safely when lazy embedding configuration is incomplete."""
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Load settings from the environment, with local-development defaults."""
@@ -69,4 +97,5 @@ def get_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL"),
         aws_region=os.getenv("AWS_REGION"),
         bedrock_chat_model_id=os.getenv("BEDROCK_CHAT_MODEL_ID"),
+        bedrock_embedding_model_id=os.getenv("BEDROCK_EMBEDDING_MODEL_ID"),
     )

@@ -34,6 +34,14 @@ export interface IncidentAnalysis {
   model_id: string
 }
 
+export interface IncidentEmbeddingPreview {
+  incident_id: string
+  model_id: string
+  dimension: number
+  input_text_token_count: number
+  text_preview: string
+}
+
 const API_BASE_PATH = '/api'
 
 class IncidentApiError extends Error {
@@ -51,7 +59,7 @@ function messageForStatus(status: number): string {
     return 'Please check the incident details and try again.'
   }
   if (status === 502) {
-    return 'The AI analysis service could not produce a valid result. Please try again.'
+    return 'The AI service could not produce a valid result. Please try again.'
   }
   if (status === 503) {
     return 'RecallOps is temporarily unavailable. Please try again shortly.'
@@ -102,6 +110,15 @@ export function getIncident(id: string): Promise<Incident> {
 export function analyzeIncident(id: string): Promise<IncidentAnalysis> {
   return request<IncidentAnalysis>(
     `/incidents/${encodeURIComponent(id)}/analysis`,
+    { method: 'POST' },
+  )
+}
+
+export function generateEmbeddingPreview(
+  id: string,
+): Promise<IncidentEmbeddingPreview> {
+  return request<IncidentEmbeddingPreview>(
+    `/incidents/${encodeURIComponent(id)}/embedding-preview`,
     { method: 'POST' },
   )
 }

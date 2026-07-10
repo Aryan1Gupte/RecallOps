@@ -1,18 +1,18 @@
 # RecallOps
 
-RecallOps is an evolving AI incident-response application that helps teams investigate incidents and learn from prior outcomes. The current implementation provides CockroachDB-backed incident CRUD, an incident dashboard, and on-demand initial analysis through Amazon Bedrock.
+RecallOps is an evolving AI incident-response application that helps teams investigate incidents and learn from prior outcomes. The current implementation provides CockroachDB-backed incident CRUD, an incident dashboard, on-demand initial analysis, and metadata-only Titan embedding previews through Amazon Bedrock.
 
 ## Planned technology stack
 
 - React, TypeScript, and Vite for the frontend
 - Python and FastAPI for the backend
-- Amazon Bedrock for implemented chat-model analysis and planned embedding calls
+- Amazon Bedrock for implemented chat-model analysis and Titan embedding generation
 - CockroachDB Cloud for implemented incident persistence and planned vector memory
 - CockroachDB Distributed Vector Indexing for semantic recall
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Embeddings, memory retrieval, vector search, MCP, authentication, agent tool execution, and deployment integrations are not implemented yet. AI analysis is returned on demand and is not stored in the database.
+Embeddings are generated on demand but are not persisted. Memory retrieval, vector storage, vector search, MCP, authentication, agent tool execution, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -73,9 +73,11 @@ Replace the fictional `DATABASE_URL` placeholder in `.env` with the CockroachDB 
 
 Set `AWS_REGION` to the AWS region where Bedrock is available and `BEDROCK_CHAT_MODEL_ID` to a chat model or inference profile that supports the Converse API. Both values are required only when incident analysis is requested.
 
+Set `BEDROCK_EMBEDDING_MODEL_ID` to the Titan Text Embeddings V2 model used for embedding previews. The safe default placeholder is `amazon.titan-embed-text-v2:0`. This setting is required only when an embedding preview is requested.
+
 AWS credentials must be configured outside this repository through the normal AWS SDK credential provider chain, such as a local shared AWS profile or an assigned runtime role. Never place or commit AWS keys in `.env`, `.env.example`, source files, tests, or documentation.
 
-`APP_NAME`, `APP_ENV`, and `API_PREFIX` have development defaults. `DATABASE_URL` is required only when an endpoint, health check, or migration starts database functionality. Missing Bedrock settings do not prevent process health, database health, or incident CRUD from starting.
+`APP_NAME`, `APP_ENV`, and `API_PREFIX` have development defaults. `DATABASE_URL` is required only when an endpoint, health check, or migration starts database functionality. Missing embedding configuration does not prevent process health, database health, incident CRUD, or incident analysis from starting.
 
 ## Database migrations
 
@@ -136,3 +138,12 @@ curl --request POST \
 ```
 
 The response includes a summary, likely category, hypotheses, recommended next steps, cautions, and the configured model ID. Model output is parsed and validated before it is returned. The analysis is not persisted in CockroachDB or browser storage.
+
+Generate metadata for an on-demand Titan embedding by replacing the fictional UUID with an existing incident ID:
+
+```bash
+curl --request POST \
+  http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000/embedding-preview
+```
+
+The response includes the incident ID, model ID, vector dimension, input token count, and deterministic text preview. The full vector is deliberately excluded from the API response and frontend. Embeddings are not persisted in CockroachDB or browser storage; vector search and memory retrieval remain unimplemented.
