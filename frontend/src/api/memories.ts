@@ -40,6 +40,37 @@ export interface MemoryListFilters {
   incident_id?: string
 }
 
+export interface RecalledMemory {
+  memory_id: string
+  incident_id: string | null
+  memory_type: MemoryType
+  summary: string
+  root_cause: string | null
+  resolution: string | null
+  status: MemoryStatus
+  embedding_model_id: string
+  embedding_dimension: number
+  success_count: number
+  failure_count: number
+  cosine_distance: number
+  similarity: number
+}
+
+export interface MemoryRecallResponse {
+  incident_id: string
+  query_embedding_model_id: string
+  query_embedding_dimension: number
+  min_similarity: number
+  top_k: number
+  memories: RecalledMemory[]
+  message: string
+}
+
+export interface MemoryRecallOptions {
+  top_k?: number
+  min_similarity?: number
+}
+
 const API_BASE_PATH = '/api'
 
 class MemoryApiError extends Error {
@@ -57,7 +88,7 @@ function messageForStatus(status: number): string {
     return 'Please check the memory details and try again.'
   }
   if (status === 502) {
-    return 'The embedding service could not save this memory. Please try again.'
+    return 'The embedding service could not complete this memory request. Please try again.'
   }
   if (status === 503) {
     return 'RecallOps is temporarily unavailable. Please try again shortly.'
@@ -116,4 +147,24 @@ export function listMemories(
 
 export function getMemory(id: string): Promise<Memory> {
   return request<Memory>(`/memories/${encodeURIComponent(id)}`)
+}
+
+export function recallIncidentMemories(
+  incidentId: string,
+  options: MemoryRecallOptions = {},
+): Promise<MemoryRecallResponse> {
+  const params = new URLSearchParams()
+  if (options.top_k !== undefined) {
+    params.set('top_k', String(options.top_k))
+  }
+  if (options.min_similarity !== undefined) {
+    params.set('min_similarity', String(options.min_similarity))
+  }
+  const query = params.toString()
+  return request<MemoryRecallResponse>(
+    `/incidents/${encodeURIComponent(incidentId)}/memory-recall${
+      query ? `?${query}` : ''
+    }`,
+    { method: 'POST' },
+  )
 }

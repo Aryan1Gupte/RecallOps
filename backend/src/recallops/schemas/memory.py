@@ -80,3 +80,37 @@ class MemoryResponse(BaseModel):
     supersession_reason: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class RecalledMemoryResponse(BaseModel):
+    """One memory returned from semantic recall without vector values."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    memory_id: UUID
+    incident_id: UUID | None
+    memory_type: MemoryType
+    summary: str
+    root_cause: str | None
+    resolution: str | None
+    status: MemoryStatus
+    embedding_model_id: str
+    embedding_dimension: int
+    success_count: int
+    failure_count: int
+    cosine_distance: float
+    similarity: float
+
+
+class MemoryRecallResponse(BaseModel):
+    """Semantic recall result for an incident query."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: UUID
+    query_embedding_model_id: str
+    query_embedding_dimension: int
+    min_similarity: float
+    top_k: int
+    memories: list[RecalledMemoryResponse]
+    message: str

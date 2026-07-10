@@ -505,6 +505,14 @@ dd {
   border-top: 1px solid #d9e1db;
 }
 
+.recall-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid #d9e1db;
+}
+
 .memory-section {
   display: grid;
   gap: 1rem;
@@ -665,6 +673,62 @@ dd {
   line-height: 1.45;
 }
 
+.recall-content,
+.recall-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.recall-summary {
+  margin: 0;
+  color: #617168;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.recall-row {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid #d1dfd7;
+  border-radius: 0.7rem;
+  background: #fbfdfb;
+}
+
+.recall-row p {
+  margin: 0;
+  color: #4d5f55;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.recall-detail {
+  padding-top: 0.45rem;
+  border-top: 1px solid #e2e9e4;
+}
+
+.recall-detail strong {
+  color: #34483d;
+}
+
+.recall-score {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  color: #234f39;
+  background: #daf0e3;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.recall-metadata {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0;
+}
+
 .memory-loading {
   color: #6a7a70;
   font-size: 0.72rem;
@@ -816,6 +880,7 @@ dd {
   dl,
   .analysis-grid,
   .embedding-metadata,
+  .recall-metadata,
   .memory-form-grid,
   .memory-metadata {
     grid-template-columns: 1fr;

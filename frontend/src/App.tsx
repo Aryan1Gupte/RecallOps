@@ -16,8 +16,10 @@ import {
 import {
   createMemory,
   listMemories,
+  recallIncidentMemories,
   type Memory,
   type MemoryCreateInput,
+  type MemoryRecallResponse,
   type MemoryType,
 } from './api/memories'
 
@@ -84,6 +86,14 @@ function formatMemoryType(value: MemoryType): string {
   return value.replace('_', ' ')
 }
 
+function formatSimilarity(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
+function formatDistance(value: number): string {
+  return value.toFixed(4)
+}
+
 export default function App() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null)
@@ -108,10 +118,16 @@ export default function App() {
   const [memoryFormError, setMemoryFormError] = useState<string | null>(null)
   const [isMemoryListLoading, setIsMemoryListLoading] = useState(false)
   const [isSavingMemory, setIsSavingMemory] = useState(false)
+  const [memoryRecall, setMemoryRecall] = useState<MemoryRecallResponse | null>(
+    null,
+  )
+  const [memoryRecallError, setMemoryRecallError] = useState<string | null>(null)
+  const [isRecallingMemories, setIsRecallingMemories] = useState(false)
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
   const memoryRequestId = useRef(0)
+  const recallRequestId = useRef(0)
 
   useEffect(() => {
     let isActive = true
@@ -203,6 +219,7 @@ export default function App() {
       analysisRequestId.current += 1
       embeddingRequestId.current += 1
       memoryRequestId.current += 1
+      recallRequestId.current += 1
       setSelectedIncident(created)
       setListError(null)
       setDetailError(null)
@@ -218,6 +235,9 @@ export default function App() {
       setMemoryFormError(null)
       setIsMemoryListLoading(false)
       setIsSavingMemory(false)
+      setMemoryRecall(null)
+      setMemoryRecallError(null)
+      setIsRecallingMemories(false)
       setForm(emptyForm)
     } catch (error) {
       setFormError(readableError(error))
@@ -231,6 +251,7 @@ export default function App() {
     detailRequestId.current = requestId
     analysisRequestId.current += 1
     embeddingRequestId.current += 1
+    recallRequestId.current += 1
     const selectedMemoryRequestId = memoryRequestId.current + 1
     memoryRequestId.current = selectedMemoryRequestId
     setSelectedIncident(incident)
@@ -248,6 +269,9 @@ export default function App() {
     setMemoryFormError(null)
     setIsMemoryListLoading(true)
     setIsSavingMemory(false)
+    setMemoryRecall(null)
+    setMemoryRecallError(null)
+    setIsRecallingMemories(false)
 
     void refreshMemoriesForIncident(incident.id, selectedMemoryRequestId)
 
@@ -358,6 +382,8 @@ export default function App() {
       if (memoryRequestId.current === requestId) {
         setMemoryForm(emptyMemoryForm)
         setIsMemoryListLoading(true)
+        setMemoryRecall(null)
+        setMemoryRecallError(null)
       }
       await refreshMemoriesForIncident(selectedIncident.id, requestId)
     } catch (error) {
@@ -368,6 +394,32 @@ export default function App() {
     } finally {
       if (memoryRequestId.current === requestId) {
         setIsSavingMemory(false)
+      }
+    }
+  }
+
+  async function handleRecallMemories() {
+    if (!selectedIncident) {
+      return
+    }
+
+    const requestId = recallRequestId.current + 1
+    recallRequestId.current = requestId
+    setIsRecallingMemories(true)
+    setMemoryRecallError(null)
+
+    try {
+      const result = await recallIncidentMemories(selectedIncident.id)
+      if (recallRequestId.current === requestId) {
+        setMemoryRecall(result)
+      }
+    } catch (error) {
+      if (recallRequestId.current === requestId) {
+        setMemoryRecallError(readableError(error))
+      }
+    } finally {
+      if (recallRequestId.current === requestId) {
+        setIsRecallingMemories(false)
       }
     }
   }
@@ -698,6 +750,91 @@ export default function App() {
                       <p className="vector-notice">
                         Vector values are intentionally excluded from this preview.
                       </p>
+                    </div>
+                  )}
+                </section>
+
+                <section className="recall-section" aria-labelledby="recall-heading">
+                  <div className="analysis-heading-row">
+                    <div>
+                      <p className="section-kicker">Semantic recall</p>
+                      <h3 id="recall-heading">Similar memories</h3>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void handleRecallMemories()}
+                      disabled={isRecallingMemories}
+                    >
+                      {isRecallingMemories
+                        ? 'Recalling…'
+                        : 'Recall similar memories'}
+                    </button>
+                  </div>
+
+                  {memoryRecallError && (
+                    <p className="message message-error" role="alert">
+                      {memoryRecallError}
+                    </p>
+                  )}
+
+                  {!memoryRecall && !memoryRecallError && !isRecallingMemories && (
+                    <p className="analysis-placeholder">
+                      Search active saved memories using this incident&apos;s
+                      semantic embedding.
+                    </p>
+                  )}
+
+                  {memoryRecall && memoryRecall.memories.length === 0 && (
+                    <p className="analysis-placeholder">{memoryRecall.message}</p>
+                  )}
+
+                  {memoryRecall && memoryRecall.memories.length > 0 && (
+                    <div className="recall-content">
+                      <p className="recall-summary">
+                        {memoryRecall.message} Threshold:{' '}
+                        {formatSimilarity(memoryRecall.min_similarity)}. Model:{' '}
+                        {memoryRecall.query_embedding_model_id}.
+                      </p>
+                      <div className="recall-list">
+                        {memoryRecall.memories.map((memory) => (
+                          <article className="recall-row" key={memory.memory_id}>
+                            <div className="memory-row-heading">
+                              <span className="memory-type">
+                                {formatMemoryType(memory.memory_type)}
+                              </span>
+                              <span className="recall-score">
+                                {formatSimilarity(memory.similarity)}
+                              </span>
+                            </div>
+                            <p>{memory.summary}</p>
+                            {memory.root_cause && (
+                              <p className="recall-detail">
+                                <strong>Root cause:</strong> {memory.root_cause}
+                              </p>
+                            )}
+                            {memory.resolution && (
+                              <p className="recall-detail">
+                                <strong>Resolution:</strong> {memory.resolution}
+                              </p>
+                            )}
+                            <dl className="recall-metadata">
+                              <div>
+                                <dt>Distance</dt>
+                                <dd>{formatDistance(memory.cosine_distance)}</dd>
+                              </div>
+                              <div>
+                                <dt>Successes</dt>
+                                <dd>{memory.success_count}</dd>
+                              </div>
+                              <div>
+                                <dt>Failures</dt>
+                                <dd>{memory.failure_count}</dd>
+                              </div>
+                            </dl>
+                          </article>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </section>

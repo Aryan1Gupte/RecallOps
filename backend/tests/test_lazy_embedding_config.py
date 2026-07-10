@@ -50,6 +50,7 @@ def test_missing_embedding_settings_do_not_break_non_embedding_endpoints(
         analysis_response = client.post(
             f"/api/incidents/{incident_id}/analysis"
         )
+        list_memories_response = client.get("/api/memories")
     finally:
         get_settings.cache_clear()
         build_embedding_service.cache_clear()
@@ -58,3 +59,4 @@ def test_missing_embedding_settings_do_not_break_non_embedding_endpoints(
     assert database_health_response.status_code == 200
     assert create_response.status_code == 201
     assert analysis_response.status_code == 200
+    assert list_memories_response.status_code == 200

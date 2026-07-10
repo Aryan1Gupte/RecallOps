@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory retrieval, vector search API endpoints, ranking, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance. Final deterministic ranking, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -159,7 +159,18 @@ curl --request POST \
   http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000/embedding-preview
 ```
 
-The response includes the incident ID, model ID, vector dimension, input token count, and deterministic text preview. The full vector is deliberately excluded from the API response and frontend. Preview embeddings are not persisted in CockroachDB or browser storage; vector search and memory retrieval remain unimplemented.
+The response includes the incident ID, model ID, vector dimension, input token count, and deterministic text preview. The full vector is deliberately excluded from the API response and frontend. Preview embeddings are not persisted in CockroachDB or browser storage.
+
+Recall semantically similar active memories for an incident:
+
+```bash
+curl --request POST \
+  'http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000/memory-recall?top_k=5&min_similarity=0.60'
+```
+
+The recall endpoint builds the same deterministic incident embedding text used by the preview flow, generates a Titan query embedding, and searches active memories with CockroachDB `VECTOR` cosine distance using the `<=>` operator. `min_similarity` is the semantic gate: RecallOps converts cosine distance to `similarity = 1 - cosine_distance` and returns only memories whose similarity is at or above the threshold. The default is `0.60`, and values must be between `0` and `1`. `top_k` controls the maximum number of returned memories; the default is `5`, and the maximum is `10`.
+
+Recall returns memory metadata, cosine distance, and similarity. It never returns the query vector or stored memory vectors. Superseded and rejected memories are excluded. Ranking by reliability, same-service bonus, or other deterministic metadata is not implemented yet.
 
 ## Memory API examples
 
@@ -194,6 +205,6 @@ Retrieve one memory by ID:
 curl http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000
 ```
 
-The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Semantic search, memory ranking, supersession workflows, usage tracking, and retrieval endpoints are still deferred to later milestones.
+The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Semantic recall currently returns active memories ordered by CockroachDB cosine distance after the semantic gate. Final deterministic memory ranking, supersession workflows, usage tracking, and agent retrieval behavior are still deferred to later milestones.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.

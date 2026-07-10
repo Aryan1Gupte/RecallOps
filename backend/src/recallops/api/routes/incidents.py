@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from recallops.ai.bedrock import AnalysisServiceError
@@ -29,9 +29,24 @@ from recallops.repositories.incidents import (
     get_incident,
     list_incidents,
 )
+from recallops.repositories.memories import (
+    MemoryPersistenceError,
+    search_similar_active_memories,
+)
 from recallops.schemas.analysis import IncidentAnalysisResponse
 from recallops.schemas.embedding import IncidentEmbeddingPreviewResponse
 from recallops.schemas.incident import IncidentCreate, IncidentResponse
+from recallops.schemas.memory import MemoryRecallResponse
+from recallops.services.memory_recall import (
+    DEFAULT_MIN_SIMILARITY,
+    DEFAULT_RECALL_TOP_K,
+    MAX_RECALL_TOP_K,
+    IncidentForRecallNotFoundError,
+    MemoryRecallEmbeddingConfigurationUnavailableError,
+    MemoryRecallEmbeddingUnavailableError,
+    MemoryRecallSearcher,
+    recall_similar_memories_for_incident,
+)
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
@@ -43,6 +58,12 @@ def persistence_unavailable() -> HTTPException:
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="Database operation unavailable",
     )
+
+
+def get_memory_recall_searcher() -> MemoryRecallSearcher:
+    """Return the repository search boundary for dependency overrides."""
+
+    return search_similar_active_memories
 
 
 @router.post("", response_model=IncidentResponse, status_code=status.HTTP_201_CREATED)
@@ -173,3 +194,52 @@ def preview_incident_embedding_endpoint(
         input_text_token_count=result.input_text_token_count,
         text_preview=build_embedding_text_preview(embedding_text),
     )
+
+
+@router.post("/{incident_id}/memory-recall", response_model=MemoryRecallResponse)
+def recall_incident_memories_endpoint(
+    incident_id: UUID,
+    top_k: int = Query(
+        default=DEFAULT_RECALL_TOP_K,
+        ge=1,
+        le=MAX_RECALL_TOP_K,
+    ),
+    min_similarity: float = Query(
+        default=DEFAULT_MIN_SIMILARITY,
+        ge=0.0,
+        le=1.0,
+    ),
+    session: Session = Depends(get_db),
+    service_factory: EmbeddingServiceFactory = Depends(
+        get_embedding_service_factory
+    ),
+    searcher: MemoryRecallSearcher = Depends(get_memory_recall_searcher),
+) -> MemoryRecallResponse:
+    """Recall semantically similar active memories for one incident."""
+
+    try:
+        return recall_similar_memories_for_incident(
+            session,
+            incident_id,
+            top_k=top_k,
+            min_similarity=min_similarity,
+            embedding_service_factory=service_factory,
+            searcher=searcher,
+        )
+    except IncidentForRecallNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Incident not found",
+        ) from None
+    except MemoryRecallEmbeddingConfigurationUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory recall embeddings are not configured",
+        ) from None
+    except MemoryRecallEmbeddingUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Memory recall is temporarily unavailable",
+        ) from None
+    except (IncidentPersistenceError, MemoryPersistenceError):
+        raise persistence_unavailable() from None

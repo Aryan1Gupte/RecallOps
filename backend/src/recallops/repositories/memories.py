@@ -57,6 +57,22 @@ class MemoryRecord:
     updated_at: datetime
 
 
+@dataclass(frozen=True)
+class SimilarMemoryRecord:
+    memory_id: UUID
+    incident_id: UUID | None
+    memory_type: str
+    summary: str
+    root_cause: str | None
+    resolution: str | None
+    embedding_model_id: str
+    embedding_dimension: int
+    success_count: int
+    failure_count: int
+    status: str
+    cosine_distance: float
+
+
 def create_memory_record(session: Session, payload: NewMemoryRecord) -> MemoryRecord:
     """Persist a memory while keeping the raw vector out of public records."""
 
@@ -104,6 +120,30 @@ def get_memory_record(session: Session, memory_id: UUID) -> MemoryRecord | None:
     if row is None:
         return None
     return _memory_record_from_mapping(row)
+
+
+def search_similar_active_memories(
+    session: Session,
+    query_vector: tuple[float, ...],
+    limit: int,
+) -> list[SimilarMemoryRecord]:
+    """Search active memories by CockroachDB VECTOR cosine distance."""
+
+    try:
+        if _is_sqlite(session):
+            return _search_similar_active_memories_for_sqlite(
+                session,
+                query_vector,
+                limit,
+            )
+        return _search_similar_active_memories_for_cockroach(
+            session,
+            query_vector,
+            limit,
+        )
+    except SQLAlchemyError:
+        session.rollback()
+        raise MemoryPersistenceError("Memory vector search failed") from None
 
 
 def _create_memory_record_for_sqlite(
@@ -201,6 +241,63 @@ def _create_memory_record_for_cockroach(
     return _memory_record_from_mapping(row)
 
 
+def _search_similar_active_memories_for_cockroach(
+    session: Session,
+    query_vector: tuple[float, ...],
+    limit: int,
+) -> list[SimilarMemoryRecord]:
+    statement = text(
+        """
+        SELECT
+            id AS memory_id,
+            incident_id,
+            memory_type,
+            summary,
+            root_cause,
+            resolution,
+            embedding_model_id,
+            embedding_dimension,
+            success_count,
+            failure_count,
+            status,
+            embedding <=> CAST(:query_vector AS VECTOR(1024)) AS cosine_distance
+        FROM memories
+        WHERE status = 'active'
+        ORDER BY embedding <=> CAST(:query_vector AS VECTOR(1024))
+        LIMIT :limit
+        """
+    )
+    rows = (
+        session.execute(
+            statement,
+            {
+                "query_vector": _serialize_vector(query_vector),
+                "limit": max(1, limit),
+            },
+        )
+        .mappings()
+        .all()
+    )
+    return [_similar_memory_record_from_mapping(row) for row in rows]
+
+
+def _search_similar_active_memories_for_sqlite(
+    session: Session,
+    query_vector: tuple[float, ...],
+    limit: int,
+) -> list[SimilarMemoryRecord]:
+    statement = select(Memory).where(Memory.status == "active")
+    memories = list(session.scalars(statement).all())
+    scored_memories = [
+        _similar_memory_record_from_model(memory, _cosine_distance(memory.embedding, query_vector))
+        for memory in memories
+    ]
+    return sorted(
+        scored_memories,
+        key=lambda memory: (memory.cosine_distance, str(memory.memory_id)),
+    )[: max(1, limit)]
+
+
 def _memory_record_select() -> Select[tuple[object, ...]]:
     return select(
         Memory.id.label("id"),
@@ -267,6 +364,43 @@ def _memory_record_from_mapping(row: RowMapping) -> MemoryRecord:
     )
 
 
+def _similar_memory_record_from_mapping(row: RowMapping) -> SimilarMemoryRecord:
+    return SimilarMemoryRecord(
+        memory_id=row["memory_id"],
+        incident_id=row["incident_id"],
+        memory_type=row["memory_type"],
+        summary=row["summary"],
+        root_cause=row["root_cause"],
+        resolution=row["resolution"],
+        embedding_model_id=row["embedding_model_id"],
+        embedding_dimension=row["embedding_dimension"],
+        success_count=row["success_count"],
+        failure_count=row["failure_count"],
+        status=row["status"],
+        cosine_distance=float(row["cosine_distance"]),
+    )
+
+
+def _similar_memory_record_from_model(
+    memory: Memory,
+    cosine_distance: float,
+) -> SimilarMemoryRecord:
+    return SimilarMemoryRecord(
+        memory_id=memory.id,
+        incident_id=memory.incident_id,
+        memory_type=memory.memory_type,
+        summary=memory.summary,
+        root_cause=memory.root_cause,
+        resolution=memory.resolution,
+        embedding_model_id=memory.embedding_model_id,
+        embedding_dimension=memory.embedding_dimension,
+        success_count=memory.success_count,
+        failure_count=memory.failure_count,
+        status=memory.status,
+        cosine_distance=cosine_distance,
+    )
+
+
 def _serialize_vector(vector: tuple[float, ...]) -> str:
     values: list[str] = []
     for value in vector:
@@ -277,6 +411,34 @@ def _serialize_vector(vector: tuple[float, ...]) -> str:
             raise MemoryPersistenceError("Memory vector was invalid")
         values.append(repr(number))
     return "[" + ",".join(values) + "]"
+
+
+def _parse_vector(serialized_vector: str) -> tuple[float, ...]:
+    stripped = serialized_vector.strip()
+    if not stripped.startswith("[") or not stripped.endswith("]"):
+        raise MemoryPersistenceError("Stored memory vector was invalid")
+    body = stripped[1:-1].strip()
+    if not body:
+        raise MemoryPersistenceError("Stored memory vector was invalid")
+    try:
+        return tuple(float(value) for value in body.split(","))
+    except ValueError:
+        raise MemoryPersistenceError("Stored memory vector was invalid") from None
+
+
+def _cosine_distance(
+    serialized_memory_vector: str,
+    query_vector: tuple[float, ...],
+) -> float:
+    memory_vector = _parse_vector(serialized_memory_vector)
+    if len(memory_vector) != len(query_vector):
+        raise MemoryPersistenceError("Stored memory vector dimension was invalid")
+    dot = sum(memory_value * query_value for memory_value, query_value in zip(memory_vector, query_vector))
+    memory_norm = math.sqrt(sum(value * value for value in memory_vector))
+    query_norm = math.sqrt(sum(value * value for value in query_vector))
+    if memory_norm == 0 or query_norm == 0:
+        raise MemoryPersistenceError("Memory vector norm was invalid")
+    return 1 - (dot / (memory_norm * query_norm))
 
 
 def _is_sqlite(session: Session) -> bool:
