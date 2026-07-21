@@ -791,18 +791,46 @@ export default function App() {
                       <p className="recall-summary">
                         {memoryRecall.message} Threshold:{' '}
                         {formatSimilarity(memoryRecall.min_similarity)}. Model:{' '}
-                        {memoryRecall.query_embedding_model_id}.
+                        {memoryRecall.query_embedding_model_id}. Semantic similarity
+                        finds candidates; deterministic ranking orders them.
+                      </p>
+                      <dl className="recall-overview">
+                        <div>
+                          <dt>Candidates</dt>
+                          <dd>{memoryRecall.candidate_count}</dd>
+                        </div>
+                        <div>
+                          <dt>Returned</dt>
+                          <dd>{memoryRecall.returned_count}</dd>
+                        </div>
+                        <div>
+                          <dt>Formula</dt>
+                          <dd>{memoryRecall.ranking_formula}</dd>
+                        </div>
+                      </dl>
+                      <p className="recall-summary">
+                        Metadata is applied only after the semantic gate.
                       </p>
                       <div className="recall-list">
                         {memoryRecall.memories.map((memory) => (
                           <article className="recall-row" key={memory.memory_id}>
                             <div className="memory-row-heading">
-                              <span className="memory-type">
-                                {formatMemoryType(memory.memory_type)}
-                              </span>
-                              <span className="recall-score">
-                                {formatSimilarity(memory.similarity)}
-                              </span>
+                              <div className="recall-title-group">
+                                <span className="recall-rank">
+                                  #{memory.rank}
+                                </span>
+                                <span className="memory-type">
+                                  {formatMemoryType(memory.memory_type)}
+                                </span>
+                              </div>
+                              <div className="recall-score-group">
+                                <span className="recall-score">
+                                  {formatSimilarity(memory.final_score)}
+                                </span>
+                                <span className="recall-score-label">
+                                  final score
+                                </span>
+                              </div>
                             </div>
                             <p>{memory.summary}</p>
                             {memory.root_cause && (
@@ -817,6 +845,18 @@ export default function App() {
                             )}
                             <dl className="recall-metadata">
                               <div>
+                                <dt>Similarity</dt>
+                                <dd>{formatSimilarity(memory.similarity)}</dd>
+                              </div>
+                              <div>
+                                <dt>Reliability</dt>
+                                <dd>{formatSimilarity(memory.reliability)}</dd>
+                              </div>
+                              <div>
+                                <dt>Same service</dt>
+                                <dd>{memory.same_service ? 'Yes' : 'No'}</dd>
+                              </div>
+                              <div>
                                 <dt>Distance</dt>
                                 <dd>{formatDistance(memory.cosine_distance)}</dd>
                               </div>
@@ -829,6 +869,9 @@ export default function App() {
                                 <dd>{memory.failure_count}</dd>
                               </div>
                             </dl>
+                            <p className="recall-explanation">
+                              {memory.why_recalled}
+                            </p>
                           </article>
                         ))}
                       </div>

@@ -10,7 +10,9 @@ from recallops.ai.embedding_protocols import (
     EmbeddingServiceError,
 )
 from recallops.main import app
+from recallops.models.incident import Incident
 from recallops.models.memory import Memory
+from recallops.repositories.memories import search_similar_active_memories
 from recallops.services.memories import CreateMemoryCommand, create_memory
 
 
@@ -276,3 +278,38 @@ def test_public_memory_responses_exclude_raw_vector(client: TestClient) -> None:
     assert '"embedding":' not in created.text
     assert "vector" not in listed.text
     assert '"embedding":' not in listed.text
+
+
+def test_memory_vector_search_returns_linked_incident_service(
+    db_session: Session,
+) -> None:
+    incident = Incident(
+        title="Checkout latency",
+        description="Requests are timing out for fictional shoppers.",
+        service="checkout-api",
+        environment="production",
+    )
+    db_session.add(incident)
+    db_session.commit()
+    db_session.refresh(incident)
+    vector = (1.0,) + (0.0,) * 1023
+    memory = Memory(
+        incident_id=incident.id,
+        memory_type="resolution",
+        summary="Restart checkout workers",
+        root_cause=None,
+        resolution="Restarted checkout workers",
+        embedding_text="Memory Type: resolution\nSummary: Restart checkout workers",
+        embedding="[" + ",".join(str(value) for value in vector) + "]",
+        embedding_model_id="fake-memory-model",
+        embedding_dimension=1024,
+    )
+    db_session.add(memory)
+    db_session.commit()
+
+    results = search_similar_active_memories(db_session, vector, 20)
+
+    assert len(results) == 1
+    assert results[0].memory_incident_service == "checkout-api"
+    assert results[0].created_at is not None
+    assert "embedding" not in results[0].__dict__

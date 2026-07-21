@@ -54,6 +54,12 @@ export interface RecalledMemory {
   failure_count: number
   cosine_distance: number
   similarity: number
+  reliability: number
+  same_service: boolean
+  same_service_score: number
+  final_score: number
+  rank: number
+  why_recalled: string
 }
 
 export interface MemoryRecallResponse {
@@ -64,6 +70,9 @@ export interface MemoryRecallResponse {
   top_k: number
   memories: RecalledMemory[]
   message: string
+  ranking_formula: string
+  candidate_count: number
+  returned_count: number
 }
 
 export interface MemoryRecallOptions {

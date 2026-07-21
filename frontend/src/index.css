@@ -686,6 +686,15 @@ dd {
   line-height: 1.5;
 }
 
+.recall-overview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.recall-overview dd {
+  overflow-wrap: anywhere;
+}
+
 .recall-row {
   display: grid;
   gap: 0.7rem;
@@ -712,6 +721,27 @@ dd {
   color: #34483d;
 }
 
+.recall-title-group,
+.recall-score-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.recall-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  color: #213d31;
+  background: #eef5f0;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
 .recall-score {
   display: inline-flex;
   align-items: center;
@@ -724,9 +754,22 @@ dd {
   font-weight: 850;
 }
 
+.recall-score-label {
+  color: #6a7a70;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .recall-metadata {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 0;
+}
+
+.recall-explanation {
+  padding-top: 0.6rem;
+  border-top: 1px solid #e2e9e4;
+  color: #506258;
 }
 
 .memory-loading {

@@ -17,7 +17,7 @@ The first semantic gate uses `min_similarity = 0.60`, where similarity is calcul
 
 The API caps `top_k` at `10` and defaults to `5`. The cap keeps synchronous recall responses small, avoids returning a noisy wall of partially related memories, and limits provider and database work while the UX is still being validated.
 
-Final deterministic ranking is deferred. This milestone orders candidates by CockroachDB cosine distance and applies the semantic gate only. Reliability, same-service weighting, explainability breakdowns, and other ranking terms need their own labelled evaluation and tests before they influence ordering.
+Final deterministic ranking is deferred from this semantic recall milestone. This milestone orders candidates by CockroachDB cosine distance and applies the semantic gate only. Reliability, same-service weighting, explainability breakdowns, and other ranking terms need their own labelled evaluation and tests before they influence ordering. ADR 0008 documents the later deterministic ranking layer.
 
 CockroachDB vector search remains encapsulated in the memory repository. Services ask for similar active memories; they do not construct SQL. This keeps CockroachDB-specific `VECTOR` casts and `<=>` cosine-distance syntax out of HTTP routes and out of SQLite-focused tests.
 

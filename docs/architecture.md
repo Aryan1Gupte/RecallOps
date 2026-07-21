@@ -6,7 +6,7 @@
 
 RecallOps is planned as a web application with a React client and a FastAPI service. The application service will own the incident-response agent loop and coordinate model calls, memory extraction, retrieval, and persistence through explicit interfaces.
 
-CockroachDB Cloud is the implemented persistence layer for incidents and saved memories. Synchronous SQLAlchemy sessions sit behind repository and service functions, Alembic owns schema changes, and FastAPI dependencies provide request-scoped sessions. Amazon Bedrock Runtime provides validated, on-demand incident analysis and normalized Titan Text Embeddings V2 behind separate provider-neutral interfaces. Incident analysis and preview embeddings are not persisted. Memory embeddings are persisted privately as `VECTOR(1024)` and are indexed with CockroachDB vector indexing, but raw vectors are not returned by public APIs or displayed in the frontend. Semantic memory recall searches active memories with CockroachDB cosine distance and a configurable similarity gate. Memory rows already include usage-counter, status, and supersession columns so later workflows have stable storage, but those workflows do not mutate the fields yet. Final deterministic ranking, MCP, authentication, agent tool execution, and deployment remain unimplemented.
+CockroachDB Cloud is the implemented persistence layer for incidents and saved memories. Synchronous SQLAlchemy sessions sit behind repository and service functions, Alembic owns schema changes, and FastAPI dependencies provide request-scoped sessions. Amazon Bedrock Runtime provides validated, on-demand incident analysis and normalized Titan Text Embeddings V2 behind separate provider-neutral interfaces. Incident analysis and preview embeddings are not persisted. Memory embeddings are persisted privately as `VECTOR(1024)` and are indexed with CockroachDB vector indexing, but raw vectors are not returned by public APIs or displayed in the frontend. Semantic memory recall searches active memories with CockroachDB cosine distance, applies a configurable similarity gate, and then orders gated candidates with deterministic scoring from semantic similarity, reliability, and same-service metadata. Memory rows already include usage-counter, status, and supersession columns so later workflows have stable storage, but feedback and supersession workflows do not mutate the fields yet. MCP, authentication, agent tool execution, and deployment remain unimplemented.
 
 The initial persistence choices are recorded in [ADR 0003: Initial synchronous persistence foundation](decisions/0003-initial-persistence.md).
 
@@ -17,6 +17,8 @@ The embedding foundation choices are recorded in [ADR 0005: On-demand Titan embe
 The persistent memory storage choices are recorded in [ADR 0006: Persistent memory vector storage](decisions/0006-persistent-memory-vector-storage.md).
 
 The semantic recall choices are recorded in [ADR 0007: Incident-based semantic memory recall](decisions/0007-incident-based-semantic-memory-recall.md).
+
+The deterministic ranking choices are recorded in [ADR 0008: Deterministic memory recall ranking](decisions/0008-deterministic-memory-recall-ranking.md).
 
 ## Provisional technology decisions
 
@@ -40,4 +42,4 @@ These boundaries are design intentions, not implemented components.
 
 ## Memory retrieval and ranking
 
-The provisional two-stage retrieval, deterministic ranking, supersession, explainability, and fair-comparison design is recorded in [ADR 0002: Memory retrieval and deterministic ranking](decisions/0002-memory-retrieval-and-ranking.md). Milestone 8 implements only the semantic vector recall gate. Final deterministic ranking and explainability breakdowns remain deferred.
+The provisional two-stage retrieval, deterministic ranking, supersession, explainability, and fair-comparison design is recorded in [ADR 0002: Memory retrieval and deterministic ranking](decisions/0002-memory-retrieval-and-ranking.md). Semantic recall now uses CockroachDB vector search for active candidates, applies the semantic gate before metadata scoring, and returns deterministic score explanations. Feedback mutations and supersession workflows remain deferred.

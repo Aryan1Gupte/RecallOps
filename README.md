@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance. Final deterministic ranking, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Feedback mutation workflows, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -174,9 +174,16 @@ curl --request POST \
   'http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000/memory-recall?top_k=5&min_similarity=0.60'
 ```
 
-The recall endpoint builds the same deterministic incident embedding text used by the preview flow, generates a Titan query embedding, and searches active memories with CockroachDB `VECTOR` cosine distance using the `<=>` operator. `min_similarity` is the semantic gate: RecallOps converts cosine distance to `similarity = 1 - cosine_distance` and returns only memories whose similarity is at or above the threshold. The default is `0.60`, and values must be between `0` and `1`. `top_k` controls the maximum number of returned memories; the default is `5`, and the maximum is `10`.
+The recall endpoint builds the same deterministic incident embedding text used by the preview flow, generates a Titan query embedding, and searches active memories with CockroachDB `VECTOR` cosine distance using the `<=>` operator. `min_similarity` is the semantic gate: RecallOps converts cosine distance to `semantic_similarity = 1 - cosine_distance` and only ranks memories whose similarity is at or above the threshold. The default is `0.60`, and values must be between `0` and `1`. Metadata cannot rescue a memory that fails the semantic gate. `top_k` controls the maximum number of returned memories after ranking; the default is `5`, and the maximum is `10`.
 
-Recall returns memory metadata, cosine distance, and similarity. It never returns the query vector or stored memory vectors. Superseded and rejected memories are excluded. Ranking by reliability, same-service bonus, or other deterministic metadata is not implemented yet.
+Gated candidates are ordered by deterministic ranking:
+
+```text
+final_score = 0.70 * semantic_similarity + 0.20 * reliability + 0.10 * same_service_score
+reliability = (success_count + 1) / (success_count + failure_count + 2)
+```
+
+`same_service_score` is `1.0` when the memory is linked to an incident with the same service as the selected incident and `0.0` otherwise. Recall returns memory metadata, cosine distance, semantic similarity, reliability, same-service metadata, final score, rank, and `why_recalled`. The `why_recalled` explanation is deterministic and generated from the score components; it is not produced by Nova, Titan, or any LLM. Recall never returns the query vector or stored memory vectors. Superseded and rejected memories are excluded.
 
 ## Memory API examples
 
@@ -211,6 +218,6 @@ Retrieve one memory by ID:
 curl http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000
 ```
 
-The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows already include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so later ranking and supersession workflows have stable storage, but this milestone does not mutate those fields beyond creation defaults. Semantic recall currently returns active memories ordered by CockroachDB cosine distance after the semantic gate. Final deterministic memory ranking, supersession workflows, usage tracking, and agent retrieval behavior are still deferred to later milestones.
+The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows already include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, later feedback, and later supersession workflows have stable storage. This milestone reads success/failure counts for ranking, but still does not implement feedback buttons, success/failure mutation workflows, supersession workflows, usage tracking, or agent retrieval behavior.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.

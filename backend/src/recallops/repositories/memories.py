@@ -9,6 +9,7 @@ from sqlalchemy import RowMapping, Select, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from recallops.models.incident import Incident
 from recallops.models.memory import Memory
 
 
@@ -61,6 +62,7 @@ class MemoryRecord:
 class SimilarMemoryRecord:
     memory_id: UUID
     incident_id: UUID | None
+    memory_incident_service: str | None
     memory_type: str
     summary: str
     root_cause: str | None
@@ -71,6 +73,7 @@ class SimilarMemoryRecord:
     failure_count: int
     status: str
     cosine_distance: float
+    created_at: datetime
 
 
 def create_memory_record(session: Session, payload: NewMemoryRecord) -> MemoryRecord:
@@ -249,21 +252,25 @@ def _search_similar_active_memories_for_cockroach(
     statement = text(
         """
         SELECT
-            id AS memory_id,
-            incident_id,
-            memory_type,
-            summary,
-            root_cause,
-            resolution,
-            embedding_model_id,
-            embedding_dimension,
-            success_count,
-            failure_count,
-            status,
-            embedding <=> CAST(:query_vector AS VECTOR(1024)) AS cosine_distance
+            memories.id AS memory_id,
+            memories.incident_id,
+            linked_incidents.service AS memory_incident_service,
+            memories.memory_type,
+            memories.summary,
+            memories.root_cause,
+            memories.resolution,
+            memories.embedding_model_id,
+            memories.embedding_dimension,
+            memories.success_count,
+            memories.failure_count,
+            memories.status,
+            memories.embedding <=> CAST(:query_vector AS VECTOR(1024)) AS cosine_distance,
+            memories.created_at
         FROM memories
-        WHERE status = 'active'
-        ORDER BY embedding <=> CAST(:query_vector AS VECTOR(1024))
+        LEFT JOIN incidents AS linked_incidents
+            ON memories.incident_id = linked_incidents.id
+        WHERE memories.status = 'active'
+        ORDER BY memories.embedding <=> CAST(:query_vector AS VECTOR(1024))
         LIMIT :limit
         """
     )
@@ -286,11 +293,22 @@ def _search_similar_active_memories_for_sqlite(
     query_vector: tuple[float, ...],
     limit: int,
 ) -> list[SimilarMemoryRecord]:
-    statement = select(Memory).where(Memory.status == "active")
-    memories = list(session.scalars(statement).all())
+    statement = (
+        select(
+            Memory,
+            Incident.service.label("memory_incident_service"),
+        )
+        .outerjoin(Incident, Memory.incident_id == Incident.id)
+        .where(Memory.status == "active")
+    )
+    rows = session.execute(statement).all()
     scored_memories = [
-        _similar_memory_record_from_model(memory, _cosine_distance(memory.embedding, query_vector))
-        for memory in memories
+        _similar_memory_record_from_model(
+            memory,
+            _cosine_distance(memory.embedding, query_vector),
+            memory_incident_service,
+        )
+        for memory, memory_incident_service in rows
     ]
     return sorted(
         scored_memories,
@@ -368,6 +386,7 @@ def _similar_memory_record_from_mapping(row: RowMapping) -> SimilarMemoryRecord:
     return SimilarMemoryRecord(
         memory_id=row["memory_id"],
         incident_id=row["incident_id"],
+        memory_incident_service=row["memory_incident_service"],
         memory_type=row["memory_type"],
         summary=row["summary"],
         root_cause=row["root_cause"],
@@ -378,16 +397,19 @@ def _similar_memory_record_from_mapping(row: RowMapping) -> SimilarMemoryRecord:
         failure_count=row["failure_count"],
         status=row["status"],
         cosine_distance=float(row["cosine_distance"]),
+        created_at=row["created_at"],
     )
 
 
 def _similar_memory_record_from_model(
     memory: Memory,
     cosine_distance: float,
+    memory_incident_service: str | None,
 ) -> SimilarMemoryRecord:
     return SimilarMemoryRecord(
         memory_id=memory.id,
         incident_id=memory.incident_id,
+        memory_incident_service=memory_incident_service,
         memory_type=memory.memory_type,
         summary=memory.summary,
         root_cause=memory.root_cause,
@@ -398,6 +420,7 @@ def _similar_memory_record_from_model(
         failure_count=memory.failure_count,
         status=memory.status,
         cosine_distance=cosine_distance,
+        created_at=memory.created_at,
     )
 
 

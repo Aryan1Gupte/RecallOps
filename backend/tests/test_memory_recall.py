@@ -1,5 +1,7 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -55,23 +57,30 @@ def similar_memory(
     *,
     memory_id: str = "00000000-0000-0000-0000-000000000101",
     incident_id: str | None = None,
+    memory_incident_service: str | None = None,
     status: str = "active",
     cosine_distance: float = 0.2,
     summary: str = "Cache flush restored checkout",
+    success_count: int = 2,
+    failure_count: int = 1,
+    created_at: datetime | None = None,
 ) -> SimilarMemoryRecord:
     return SimilarMemoryRecord(
         memory_id=UUID(memory_id),
         incident_id=UUID(incident_id) if incident_id is not None else None,
+        memory_incident_service=memory_incident_service,
         memory_type="resolution",
         summary=summary,
         root_cause="Workers held stale cache entries",
         resolution="Restarted checkout workers",
         embedding_model_id="fake-memory-model",
         embedding_dimension=1024,
-        success_count=2,
-        failure_count=1,
+        success_count=success_count,
+        failure_count=failure_count,
         status=status,
         cosine_distance=cosine_distance,
+        created_at=created_at
+        or datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
 
@@ -91,7 +100,13 @@ def test_recall_endpoint_success_with_fake_embedding_and_repository(
     ) -> list[SimilarMemoryRecord]:
         assert session is db_session
         search_calls.append((query_vector, limit))
-        return [similar_memory(incident_id=incident["id"], cosine_distance=0.25)]
+        return [
+            similar_memory(
+                incident_id=incident["id"],
+                memory_incident_service="checkout-api",
+                cosine_distance=0.25,
+            )
+        ]
 
     override_memory_searcher(fake_searcher)
 
@@ -104,24 +119,43 @@ def test_recall_endpoint_success_with_fake_embedding_and_repository(
     assert body["query_embedding_dimension"] == 1024
     assert body["min_similarity"] == 0.6
     assert body["top_k"] == 5
-    assert body["message"] == "Found 1 relevant active memory."
-    assert body["memories"] == [
-        {
-            "memory_id": "00000000-0000-0000-0000-000000000101",
-            "incident_id": incident["id"],
-            "memory_type": "resolution",
-            "summary": "Cache flush restored checkout",
-            "root_cause": "Workers held stale cache entries",
-            "resolution": "Restarted checkout workers",
-            "status": "active",
-            "embedding_model_id": "fake-memory-model",
-            "embedding_dimension": 1024,
-            "success_count": 2,
-            "failure_count": 1,
-            "cosine_distance": 0.25,
-            "similarity": 0.75,
-        }
-    ]
+    assert body["message"] == (
+        "Found 1 relevant active memory after semantic gating and deterministic ranking."
+    )
+    assert body["ranking_formula"] == (
+        "final_score = 0.70 * semantic_similarity "
+        "+ 0.20 * reliability + 0.10 * same_service_score"
+    )
+    assert body["candidate_count"] == 1
+    assert body["returned_count"] == 1
+    assert len(body["memories"]) == 1
+    memory = body["memories"][0]
+    assert memory == {
+        "memory_id": "00000000-0000-0000-0000-000000000101",
+        "incident_id": incident["id"],
+        "memory_type": "resolution",
+        "summary": "Cache flush restored checkout",
+        "root_cause": "Workers held stale cache entries",
+        "resolution": "Restarted checkout workers",
+        "status": "active",
+        "embedding_model_id": "fake-memory-model",
+        "embedding_dimension": 1024,
+        "success_count": 2,
+        "failure_count": 1,
+        "cosine_distance": 0.25,
+        "similarity": 0.75,
+        "reliability": 0.6,
+        "same_service": True,
+        "same_service_score": 1.0,
+        "final_score": memory["final_score"],
+        "rank": 1,
+        "why_recalled": (
+            "Passed semantic gate with 0.75 similarity; "
+            "reliability 0.60 from 2 successes and 1 failure; "
+            "same service match contributed to final ranking."
+        ),
+    }
+    assert memory["final_score"] == pytest.approx(0.745)
     assert service.inputs == [
         "Title: Checkout latency\n"
         "Description: Requests are timing out for fictional shoppers.\n"
@@ -129,7 +163,7 @@ def test_recall_endpoint_success_with_fake_embedding_and_repository(
         "Environment: production\n"
         "Status: open"
     ]
-    assert search_calls == [(service.vector, 5)]
+    assert search_calls == [(service.vector, 20)]
 
 
 def test_recall_returns_not_found_without_calling_provider(
@@ -246,6 +280,39 @@ def test_recall_semantic_gate_filters_below_default_threshold(
     ]
 
 
+def test_recall_does_not_let_metadata_rescue_below_threshold_memories(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    override_memory_searcher(
+        lambda session, query_vector, limit: [
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000106",
+                memory_incident_service="checkout-api",
+                cosine_distance=0.41,
+                summary="Below threshold despite strong metadata",
+                success_count=100,
+                failure_count=0,
+            ),
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000107",
+                cosine_distance=0.39,
+                summary="Semantically relevant memory",
+                success_count=0,
+                failure_count=0,
+            ),
+        ]
+    )
+
+    response = client.post(f"/api/incidents/{incident['id']}/memory-recall")
+
+    assert response.status_code == 200
+    assert [memory["summary"] for memory in response.json()["memories"]] == [
+        "Semantically relevant memory"
+    ]
+
+
 def test_recall_top_k_defaults_to_five(client: TestClient) -> None:
     incident = create_test_incident(client)
     override_embedding_service(FakeEmbeddingService())
@@ -265,7 +332,7 @@ def test_recall_top_k_defaults_to_five(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["top_k"] == 5
-    assert limits == [5]
+    assert limits == [20]
 
 
 def test_recall_top_k_allows_ten_and_rejects_larger_values(
@@ -297,7 +364,44 @@ def test_recall_top_k_allows_ten_and_rejects_larger_values(
     assert valid_response.status_code == 200
     assert valid_response.json()["top_k"] == 10
     assert invalid_response.status_code == 422
-    assert limits == [10]
+    assert limits == [20]
+
+
+def test_recall_applies_top_k_after_deterministic_ranking(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    override_memory_searcher(
+        lambda session, query_vector, limit: [
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000108",
+                cosine_distance=0.05,
+                summary="Closest semantic candidate",
+                success_count=0,
+                failure_count=1,
+            ),
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000109",
+                memory_incident_service="checkout-api",
+                cosine_distance=0.10,
+                summary="Highest deterministic rank",
+                success_count=10,
+                failure_count=0,
+            ),
+        ]
+    )
+
+    response = client.post(
+        f"/api/incidents/{incident['id']}/memory-recall",
+        params={"top_k": 1},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["returned_count"] == 1
+    assert body["memories"][0]["summary"] == "Highest deterministic rank"
+    assert body["memories"][0]["rank"] == 1
 
 
 def test_recall_min_similarity_validates_bounds(client: TestClient) -> None:
@@ -375,5 +479,5 @@ def test_recall_returns_empty_list_when_no_memories_pass_gate(
     assert response.status_code == 200
     assert response.json()["memories"] == []
     assert response.json()["message"] == (
-        "No relevant active memories were found for this incident."
+        "No relevant active memories passed the semantic gate for this incident."
     )

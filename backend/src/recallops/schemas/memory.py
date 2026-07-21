@@ -100,6 +100,12 @@ class RecalledMemoryResponse(BaseModel):
     failure_count: int
     cosine_distance: float
     similarity: float
+    reliability: float
+    same_service: bool
+    same_service_score: float
+    final_score: float
+    rank: int
+    why_recalled: str
 
 
 class MemoryRecallResponse(BaseModel):
@@ -114,3 +120,6 @@ class MemoryRecallResponse(BaseModel):
     top_k: int
     memories: list[RecalledMemoryResponse]
     message: str
+    ranking_formula: str
+    candidate_count: int
+    returned_count: int
