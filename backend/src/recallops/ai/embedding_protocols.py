@@ -1,6 +1,8 @@
 """Provider-neutral embedding boundary and validated internal result."""
 
 from dataclasses import dataclass
+import math
+from typing import Protocol
 
 EMBEDDING_DIMENSIONS = 1024
 """Vector width every embedding provider must produce.
@@ -27,6 +29,15 @@ class EmbeddingServiceError(EmbeddingError):
     """Raised without provider details when an embedding request fails."""
 
 
+class EmbeddingService(Protocol):
+    """Contract implemented by any embedding provider."""
+
+    def embed(self, text: str) -> "EmbeddingResult":
+        """Generate and validate an embedding for backend-internal use."""
+
+        ...
+
+
 @dataclass(frozen=True)
 class EmbeddingResult:
     """Internal embedding result; vectors never cross the public API boundary."""
@@ -39,9 +50,22 @@ class EmbeddingResult:
     def __post_init__(self) -> None:
         if not self.vector:
             raise EmbeddingValidationError("Embedding vector must not be empty")
+        if self.dimension != EMBEDDING_DIMENSIONS:
+            raise EmbeddingValidationError(
+                "Embedding dimension must equal configured vector width"
+            )
         if self.dimension != len(self.vector):
             raise EmbeddingValidationError(
                 "Embedding dimension must equal vector length"
+            )
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in self.vector
+        ):
+            raise EmbeddingValidationError(
+                "Embedding vector must contain only finite numeric values"
             )
         if self.input_text_token_count < 0:
             raise EmbeddingValidationError(

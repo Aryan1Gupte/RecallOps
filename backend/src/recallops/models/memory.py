@@ -62,6 +62,9 @@ class Memory(Base):
     root_cause: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # CockroachDB stores this as VECTOR(1024). Alembic/raw SQL owns that DDL,
+    # while SQLAlchemy keeps a portable Text mapping for SQLite tests. Use
+    # repository raw SQL for vector inserts/searches instead of ORM vector queries.
     embedding: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_model_id: Mapped[str] = mapped_column(String(200), nullable=False)
     embedding_dimension: Mapped[int] = mapped_column(

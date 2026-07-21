@@ -58,11 +58,8 @@ const emptyMemoryForm: MemoryFormState = {
   resolution: '',
 }
 
-function memoryFormForIncident(incident: Incident | null): MemoryFormState {
-  return {
-    ...emptyMemoryForm,
-    summary: incident?.title ?? '',
-  }
+function newMemoryForm(): MemoryFormState {
+  return { ...emptyMemoryForm }
 }
 
 function formatDate(value: string): string {
@@ -83,7 +80,7 @@ function readableError(error: unknown): string {
 }
 
 function formatMemoryType(value: MemoryType): string {
-  return value.replace('_', ' ')
+  return value.replace(/_/g, ' ')
 }
 
 function formatSimilarity(value: number): string {
@@ -230,7 +227,7 @@ export default function App() {
       setEmbeddingError(null)
       setIsEmbedding(false)
       setMemories([])
-      setMemoryForm(memoryFormForIncident(created))
+      setMemoryForm(newMemoryForm())
       setMemoryListError(null)
       setMemoryFormError(null)
       setIsMemoryListLoading(false)
@@ -264,7 +261,7 @@ export default function App() {
     setEmbeddingError(null)
     setIsEmbedding(false)
     setMemories([])
-    setMemoryForm(memoryFormForIncident(incident))
+    setMemoryForm(newMemoryForm())
     setMemoryListError(null)
     setMemoryFormError(null)
     setIsMemoryListLoading(true)
@@ -878,6 +875,7 @@ export default function App() {
                           onChange={(event) =>
                             updateMemoryForm('summary', event.target.value)
                           }
+                          placeholder="What should RecallOps remember from this incident?"
                           rows={3}
                           maxLength={4000}
                           required

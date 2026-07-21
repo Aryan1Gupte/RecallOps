@@ -1,19 +1,17 @@
 """Semantic memory recall service."""
 
 from collections.abc import Callable
-import math
-from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from recallops.ai.embedding_protocols import (
-    EMBEDDING_DIMENSIONS,
+    EmbeddingService,
     EmbeddingError,
     EmbeddingResult,
 )
 from recallops.ai.embedding_text import build_incident_embedding_text
-from recallops.ai.protocols import build_incident_analysis_input
+from recallops.ai.protocols import IncidentAnalysisInput, build_incident_analysis_input
 from recallops.config import BedrockEmbeddingConfigurationError
 from recallops.repositories.incidents import get_incident
 from recallops.repositories.memories import (
@@ -43,10 +41,6 @@ class MemoryRecallEmbeddingConfigurationUnavailableError(RuntimeError):
     """Raised when recall embedding settings are incomplete."""
 
 
-class EmbeddingService(Protocol):
-    def embed(self, text: str) -> EmbeddingResult: ...
-
-
 EmbeddingServiceFactory = Callable[[], EmbeddingService]
 MemoryRecallSearcher = Callable[
     [Session, tuple[float, ...], int],
@@ -69,9 +63,20 @@ def recall_similar_memories_for_incident(
     if incident is None:
         raise IncidentForRecallNotFoundError("Incident not found")
 
-    embedding_text = build_incident_embedding_text(
-        build_incident_analysis_input(incident)
+    incident_input = build_incident_analysis_input(incident)
+    query_context = IncidentAnalysisInput(
+        incident_id=incident_input.incident_id,
+        title=incident_input.title,
+        description=incident_input.description,
+        service=incident_input.service,
+        environment=incident_input.environment,
+        status=incident_input.status,
     )
+    # The query context is copied, so the DB transaction can end before the
+    # potentially slow Bedrock embedding request.
+    session.rollback()
+
+    embedding_text = build_incident_embedding_text(query_context)
 
     try:
         embedding_service = embedding_service_factory()
@@ -104,7 +109,7 @@ def recall_similar_memories_for_incident(
         message = "No relevant active memories were found for this incident."
 
     return MemoryRecallResponse(
-        incident_id=incident.id,
+        incident_id=query_context.incident_id,
         query_embedding_model_id=embedding_result.model_id,
         query_embedding_dimension=embedding_result.dimension,
         min_similarity=min_similarity,
@@ -150,20 +155,7 @@ def _apply_semantic_gate(
 
 
 def _validate_embedding_result(result: EmbeddingResult) -> None:
-    if result.dimension != EMBEDDING_DIMENSIONS:
+    if not isinstance(result, EmbeddingResult):
         raise MemoryRecallEmbeddingUnavailableError(
-            "Memory recall embedding dimension was invalid"
-        )
-    if len(result.vector) != EMBEDDING_DIMENSIONS:
-        raise MemoryRecallEmbeddingUnavailableError(
-            "Memory recall embedding vector length was invalid"
-        )
-    if any(
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        for value in result.vector
-    ):
-        raise MemoryRecallEmbeddingUnavailableError(
-            "Memory recall embedding vector was invalid"
-        )
+            "Memory recall embedding was invalid"
+        ) from None

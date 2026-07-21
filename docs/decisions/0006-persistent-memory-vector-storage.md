@@ -11,6 +11,8 @@ RecallOps can create incidents, generate on-demand incident analysis, and previe
 
 Saved memories are stored in a dedicated `memories` table rather than on incident rows. A memory can optionally link to an incident, but it has its own type, lifecycle status, supersession fields, usage counters, deterministic embedding text, embedding model metadata, and private vector column.
 
+The `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` columns are intentionally part of the schema from the first memory storage revision. They reserve stable persistence fields for later deterministic ranking and supersession workflows, but this milestone does not mutate them beyond default values.
+
 Embeddings are stored on memories rather than incidents because not every incident field is a reusable lesson, and multiple memories can come from one incident. Incident rows remain the operational record; memory rows represent reusable outcomes, observations, procedures, or failed actions.
 
 The memory embedding column uses CockroachDB `VECTOR(1024)` because Titan Text Embeddings V2 is configured through the backend embedding boundary to produce normalized 1,024-dimensional vectors. The backend reuses the shared `EMBEDDING_DIMENSIONS` constant for application validation, while Alembic keeps the historical `VECTOR(1024)` literal in schema DDL.

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -98,3 +99,12 @@ def test_embedding_result_rejects_dimension_mismatch() -> None:
             input_text_token_count=1,
             model_id="fake-titan-model",
         )
+
+
+def test_memory_services_use_shared_embedding_protocol() -> None:
+    source_root = Path(__file__).parents[1] / "src" / "recallops" / "services"
+    for path in (
+        source_root / "memories.py",
+        source_root / "memory_recall.py",
+    ):
+        assert "class EmbeddingService(Protocol)" not in path.read_text()

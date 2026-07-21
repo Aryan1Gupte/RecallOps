@@ -11,6 +11,7 @@ from recallops.ai.embedding_protocols import (
 )
 from recallops.main import app
 from recallops.models.memory import Memory
+from recallops.services.memories import CreateMemoryCommand, create_memory
 
 
 def incident_payload(title: str = "Checkout latency") -> dict[str, str]:
@@ -89,6 +90,31 @@ def test_create_memory_with_fake_embedding_service(client: TestClient) -> None:
     ]
 
 
+def test_create_memory_service_accepts_command(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    incident = create_test_incident(client)
+    service = FakeEmbeddingService()
+
+    memory = create_memory(
+        db_session,
+        CreateMemoryCommand(
+            incident_id=UUID(incident["id"]),
+            memory_type="procedure",
+            summary="Restarting checkout workers clears stale local cache",
+            root_cause=None,
+            resolution="Use the checkout worker restart runbook",
+        ),
+        lambda: service,
+    )
+
+    assert memory.incident_id == UUID(incident["id"])
+    assert memory.memory_type == "procedure"
+    assert memory.summary == "Restarting checkout workers clears stale local cache"
+    assert "embedding" not in memory.__dict__
+
+
 def test_create_memory_rejects_missing_linked_incident(client: TestClient) -> None:
     service = FakeEmbeddingService()
     override_embedding_service(service)
@@ -100,6 +126,25 @@ def test_create_memory_rejects_missing_linked_incident(client: TestClient) -> No
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Incident not found"}
+    assert service.inputs == []
+    assert client.get("/api/memories").json() == []
+
+
+def test_create_memory_rejects_summary_that_repeats_linked_incident_title(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client, "Checkout latency")
+    service = FakeEmbeddingService()
+    override_embedding_service(service)
+    payload = memory_payload(incident["id"])
+    payload["summary"] = "  checkout LATENCY  "
+
+    response = client.post("/api/memories", json=payload)
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Memory summary must describe what to remember, not repeat the incident title"
+    }
     assert service.inputs == []
     assert client.get("/api/memories").json() == []
 

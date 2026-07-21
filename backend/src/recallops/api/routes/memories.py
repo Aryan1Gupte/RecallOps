@@ -19,9 +19,11 @@ from recallops.schemas.memory import (
     MemoryType,
 )
 from recallops.services.memories import (
+    CreateMemoryCommand,
     LinkedIncidentNotFoundError,
     MemoryEmbeddingConfigurationUnavailableError,
     MemoryEmbeddingUnavailableError,
+    MemoryValidationError,
     create_memory,
     get_memory,
     list_memories,
@@ -47,12 +49,24 @@ def create_memory_endpoint(
         get_embedding_service_factory
     ),
 ) -> MemoryResponse:
+    command = CreateMemoryCommand(
+        incident_id=payload.incident_id,
+        memory_type=payload.memory_type.value,
+        summary=payload.summary,
+        root_cause=payload.root_cause,
+        resolution=payload.resolution,
+    )
     try:
-        memory = create_memory(session, payload, service_factory)
+        memory = create_memory(session, command, service_factory)
     except LinkedIncidentNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Incident not found",
+        ) from None
+    except MemoryValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
         ) from None
     except MemoryEmbeddingConfigurationUnavailableError:
         raise HTTPException(
@@ -80,8 +94,8 @@ def list_memories_endpoint(
     try:
         memories = list_memories(
             session,
-            status=status_filter,
-            memory_type=memory_type,
+            status=status_filter.value if status_filter is not None else None,
+            memory_type=memory_type.value if memory_type is not None else None,
             incident_id=incident_id,
         )
     except MemoryPersistenceError:

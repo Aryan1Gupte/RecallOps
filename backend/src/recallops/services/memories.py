@@ -1,14 +1,13 @@
 """Memory application service."""
 
 from collections.abc import Callable
-import math
-from typing import Protocol
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from recallops.ai.embedding_protocols import (
-    EMBEDDING_DIMENSIONS,
+    EmbeddingService,
     EmbeddingError,
     EmbeddingResult,
 )
@@ -23,11 +22,34 @@ from recallops.repositories.memories import (
     get_memory_record,
     list_memory_records,
 )
-from recallops.schemas.memory import MemoryCreate, MemoryStatus, MemoryType
+
+
+@dataclass(frozen=True)
+class CreateMemoryCommand:
+    """Service-layer command for creating memories from any caller."""
+
+    incident_id: UUID | None
+    memory_type: str
+    summary: str
+    root_cause: str | None = None
+    resolution: str | None = None
+
+
+@dataclass(frozen=True)
+class LinkedIncidentContext:
+    """Safe incident fields copied before blocking embedding calls."""
+
+    title: str
+    service: str
+    environment: str
 
 
 class LinkedIncidentNotFoundError(RuntimeError):
     """Raised when a client links a memory to an incident that does not exist."""
+
+
+class MemoryValidationError(RuntimeError):
+    """Raised when memory content is valid JSON but not useful to persist."""
 
 
 class MemoryEmbeddingUnavailableError(RuntimeError):
@@ -38,32 +60,40 @@ class MemoryEmbeddingConfigurationUnavailableError(RuntimeError):
     """Raised when memory embedding settings are incomplete."""
 
 
-class EmbeddingService(Protocol):
-    def embed(self, text: str) -> EmbeddingResult: ...
-
-
 EmbeddingServiceFactory = Callable[[], EmbeddingService]
 
 
 def create_memory(
     session: Session,
-    payload: MemoryCreate,
+    command: CreateMemoryCommand,
     embedding_service_factory: EmbeddingServiceFactory,
 ) -> MemoryRecord:
     """Create a memory after verifying context and generating its embedding."""
 
-    incident = None
-    if payload.incident_id is not None:
-        incident = get_incident(session, payload.incident_id)
+    incident_context = None
+    if command.incident_id is not None:
+        incident = get_incident(session, command.incident_id)
         if incident is None:
             raise LinkedIncidentNotFoundError("Linked incident not found")
+        if _normalized_text(command.summary) == _normalized_text(incident.title):
+            raise MemoryValidationError(
+                "Memory summary must describe what to remember, not repeat the incident title"
+            )
+        incident_context = LinkedIncidentContext(
+            title=incident.title,
+            service=incident.service,
+            environment=incident.environment,
+        )
+        # The linked incident fields are copied, so the DB transaction can end
+        # before the potentially slow Bedrock embedding request.
+        session.rollback()
 
     embedding_text = build_memory_embedding_text(
-        memory_type=payload.memory_type.value,
-        summary=payload.summary,
-        root_cause=payload.root_cause,
-        resolution=payload.resolution,
-        incident=incident,
+        memory_type=command.memory_type,
+        summary=command.summary,
+        root_cause=command.root_cause,
+        resolution=command.resolution,
+        incident=incident_context,
     )
 
     try:
@@ -83,11 +113,11 @@ def create_memory(
     return create_memory_record(
         session,
         NewMemoryRecord(
-            incident_id=payload.incident_id,
-            memory_type=payload.memory_type.value,
-            summary=payload.summary,
-            root_cause=payload.root_cause,
-            resolution=payload.resolution,
+            incident_id=command.incident_id,
+            memory_type=command.memory_type,
+            summary=command.summary,
+            root_cause=command.root_cause,
+            resolution=command.resolution,
             embedding_text=embedding_text,
             embedding=embedding_result.vector,
             embedding_model_id=embedding_result.model_id,
@@ -99,15 +129,15 @@ def create_memory(
 def list_memories(
     session: Session,
     *,
-    status: MemoryStatus | None = None,
-    memory_type: MemoryType | None = None,
+    status: str | None = None,
+    memory_type: str | None = None,
     incident_id: UUID | None = None,
 ) -> list[MemoryRecord]:
     return list_memory_records(
         session,
         MemoryFilters(
-            status=status.value if status is not None else None,
-            memory_type=memory_type.value if memory_type is not None else None,
+            status=status,
+            memory_type=memory_type,
             incident_id=incident_id,
         ),
     )
@@ -118,18 +148,9 @@ def get_memory(session: Session, memory_id: UUID) -> MemoryRecord | None:
 
 
 def _validate_embedding_result(result: EmbeddingResult) -> None:
-    if result.dimension != EMBEDDING_DIMENSIONS:
-        raise MemoryEmbeddingUnavailableError(
-            "Memory embedding dimension was invalid"
-        )
-    if len(result.vector) != EMBEDDING_DIMENSIONS:
-        raise MemoryEmbeddingUnavailableError(
-            "Memory embedding vector length was invalid"
-        )
-    if any(
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        for value in result.vector
-    ):
-        raise MemoryEmbeddingUnavailableError("Memory embedding vector was invalid")
+    if not isinstance(result, EmbeddingResult):
+        raise MemoryEmbeddingUnavailableError("Memory embedding was invalid") from None
+
+
+def _normalized_text(value: str) -> str:
+    return value.strip().casefold()

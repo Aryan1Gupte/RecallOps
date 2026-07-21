@@ -95,7 +95,13 @@ backend/.venv/bin/python -m dotenv -f .env run -- \
   backend/.venv/bin/alembic -c backend/alembic.ini current
 ```
 
-API tests use isolated in-memory SQLite through FastAPI dependency overrides. They never read, modify, or depend on the real CockroachDB Cloud database. The Alembic migration and database-health endpoint validate real CockroachDB compatibility separately.
+API tests use isolated in-memory SQLite through FastAPI dependency overrides. They never read, modify, or depend on the real CockroachDB Cloud database. The Alembic migration and database-health endpoint validate real CockroachDB compatibility separately. To explicitly exercise the CockroachDB memory insert path with a fake vector and no Bedrock call, run:
+
+```bash
+RECALLOPS_RUN_COCKROACH_INTEGRATION=1 \
+  backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/python -m pytest backend/tests/test_cockroach_memory_integration.py
+```
 
 After applying migrations, verify the memory table and vector index in CockroachDB with SQL similar to:
 
@@ -205,6 +211,6 @@ Retrieve one memory by ID:
 curl http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000
 ```
 
-The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Semantic recall currently returns active memories ordered by CockroachDB cosine distance after the semantic gate. Final deterministic memory ranking, supersession workflows, usage tracking, and agent retrieval behavior are still deferred to later milestones.
+The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows already include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so later ranking and supersession workflows have stable storage, but this milestone does not mutate those fields beyond creation defaults. Semantic recall currently returns active memories ordered by CockroachDB cosine distance after the semantic gate. Final deterministic memory ranking, supersession workflows, usage tracking, and agent retrieval behavior are still deferred to later milestones.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.
