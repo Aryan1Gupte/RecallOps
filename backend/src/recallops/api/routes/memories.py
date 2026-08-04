@@ -14,6 +14,8 @@ from recallops.repositories.incidents import IncidentPersistenceError
 from recallops.repositories.memories import MemoryPersistenceError
 from recallops.schemas.memory import (
     MemoryCreate,
+    MemoryFeedbackCreate,
+    MemoryFeedbackResponse,
     MemoryResponse,
     MemoryStatus,
     MemoryType,
@@ -23,10 +25,14 @@ from recallops.services.memories import (
     LinkedIncidentNotFoundError,
     MemoryEmbeddingConfigurationUnavailableError,
     MemoryEmbeddingUnavailableError,
+    MemoryFeedbackConflictError,
+    MemoryFeedbackNotFoundError,
+    MemoryFeedbackValidationError,
     MemoryValidationError,
     create_memory,
     get_memory,
     list_memories,
+    submit_memory_feedback,
 )
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -120,3 +126,32 @@ def get_memory_endpoint(
             detail="Memory not found",
         )
     return MemoryResponse.model_validate(memory)
+
+
+@router.post("/{memory_id}/feedback", response_model=MemoryFeedbackResponse)
+def submit_memory_feedback_endpoint(
+    memory_id: UUID,
+    payload: MemoryFeedbackCreate,
+    session: Session = Depends(get_db),
+) -> MemoryFeedbackResponse:
+    try:
+        result = submit_memory_feedback(session, memory_id, payload.outcome.value)
+    except MemoryFeedbackNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memory not found",
+        ) from None
+    except MemoryFeedbackConflictError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Feedback is only accepted for active memories",
+        ) from None
+    except MemoryFeedbackValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from None
+    except MemoryPersistenceError:
+        raise persistence_unavailable() from None
+
+    return MemoryFeedbackResponse.model_validate(result)

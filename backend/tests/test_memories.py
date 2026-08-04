@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,13 @@ from recallops.main import app
 from recallops.models.incident import Incident
 from recallops.models.memory import Memory
 from recallops.repositories.memories import search_similar_active_memories
-from recallops.services.memories import CreateMemoryCommand, create_memory
+from recallops.services.memories import (
+    CreateMemoryCommand,
+    MemoryFeedbackValidationError,
+    create_memory,
+    submit_memory_feedback,
+)
+from recallops.services.memory_ranking import calculate_reliability
 
 
 def incident_payload(title: str = "Checkout latency") -> dict[str, str]:
@@ -78,6 +85,7 @@ def test_create_memory_with_fake_embedding_service(client: TestClient) -> None:
     assert body["embedding_dimension"] == 1024
     assert body["success_count"] == 0
     assert body["failure_count"] == 0
+    assert body["reliability"] == 0.5
     assert body["status"] == "active"
     assert "embedding" not in body
     assert "vector" not in body
@@ -252,6 +260,7 @@ def test_get_memory_by_id(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json() == created
+    assert response.json()["reliability"] == 0.5
     assert "embedding" not in response.json()
 
 
@@ -278,6 +287,148 @@ def test_public_memory_responses_exclude_raw_vector(client: TestClient) -> None:
     assert '"embedding":' not in created.text
     assert "vector" not in listed.text
     assert '"embedding":' not in listed.text
+
+
+def test_feedback_success_increments_success_count_and_reliability(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+
+    response = client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "success"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["memory_id"] == created["id"]
+    assert body["outcome"] == "success"
+    assert body["success_count"] == 1
+    assert body["failure_count"] == 0
+    assert body["reliability"] == calculate_reliability(1, 0)
+    assert body["status"] == "active"
+    assert body["message"] == "Memory marked successful."
+    assert "vector" not in response.text
+    assert '"embedding":' not in response.text
+
+
+def test_feedback_failure_increments_failure_count_and_reliability(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+
+    response = client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "failure"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["outcome"] == "failure"
+    assert body["success_count"] == 0
+    assert body["failure_count"] == 1
+    assert body["reliability"] == calculate_reliability(0, 1)
+    assert body["message"] == "Memory marked failed."
+
+
+def test_feedback_updates_memory_response_reliability(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+
+    client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "success"},
+    )
+    listed = client.get("/api/memories").json()
+    retrieved = client.get(f"/api/memories/{created['id']}").json()
+
+    assert listed[0]["success_count"] == 1
+    assert listed[0]["failure_count"] == 0
+    assert listed[0]["reliability"] == calculate_reliability(1, 0)
+    assert retrieved["reliability"] == calculate_reliability(1, 0)
+
+
+def test_feedback_returns_not_found_for_missing_memory(client: TestClient) -> None:
+    response = client.post(
+        "/api/memories/00000000-0000-0000-0000-000000000001/feedback",
+        json={"outcome": "success"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Memory not found"}
+
+
+def test_feedback_rejects_invalid_outcome(client: TestClient) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+
+    response = client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "maybe"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_feedback_service_validates_outcome(db_session: Session) -> None:
+    with pytest.raises(MemoryFeedbackValidationError):
+        submit_memory_feedback(
+            db_session,
+            UUID("00000000-0000-0000-0000-000000000001"),
+            "maybe",
+        )
+
+
+@pytest.mark.parametrize("inactive_status", ["superseded", "rejected"])
+def test_feedback_rejects_inactive_memory(
+    client: TestClient,
+    db_session: Session,
+    inactive_status: str,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+    memory = db_session.get(Memory, UUID(created["id"]))
+    assert memory is not None
+    memory.status = inactive_status
+    db_session.commit()
+
+    response = client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "success"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Feedback is only accepted for active memories"
+    }
+
+
+def test_feedback_does_not_call_embedding_service(client: TestClient) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+
+    class FailingEmbeddingService:
+        def embed(self, text: str) -> EmbeddingResult:
+            raise AssertionError("Feedback must not call embeddings")
+
+    override_embedding_service(FailingEmbeddingService())
+
+    response = client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "success"},
+    )
+
+    assert response.status_code == 200
 
 
 def test_memory_vector_search_returns_linked_incident_service(

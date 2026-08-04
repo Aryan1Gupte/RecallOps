@@ -5,7 +5,7 @@ from datetime import datetime
 import math
 from uuid import UUID, uuid4
 
-from sqlalchemy import RowMapping, Select, select, text
+from sqlalchemy import RowMapping, Select, func, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,14 @@ from recallops.models.memory import Memory
 
 class MemoryPersistenceError(RuntimeError):
     """Safe boundary error that does not expose driver details."""
+
+
+class MemoryRecordNotFoundError(RuntimeError):
+    """Raised when a requested memory row does not exist."""
+
+
+class MemoryFeedbackNotAcceptedError(RuntimeError):
+    """Raised when a memory cannot accept feedback in its current status."""
 
 
 @dataclass(frozen=True)
@@ -123,6 +131,47 @@ def get_memory_record(session: Session, memory_id: UUID) -> MemoryRecord | None:
     if row is None:
         return None
     return _memory_record_from_mapping(row)
+
+
+def record_memory_feedback(
+    session: Session,
+    memory_id: UUID,
+    outcome: str,
+) -> MemoryRecord:
+    """Atomically increment feedback counters for one active memory."""
+
+    values = {"updated_at": func.now()}
+    if outcome == "success":
+        values["success_count"] = Memory.success_count + 1
+    elif outcome == "failure":
+        values["failure_count"] = Memory.failure_count + 1
+    else:
+        raise ValueError("Memory feedback outcome was invalid")
+
+    statement = (
+        update(Memory)
+        .where(Memory.id == memory_id, Memory.status == "active")
+        .values(**values)
+        .returning(*_memory_record_columns())
+    )
+
+    try:
+        row = session.execute(statement).mappings().one_or_none()
+        if row is not None:
+            session.commit()
+            return _memory_record_from_mapping(row)
+
+        session.rollback()
+        status_row = session.execute(
+            select(Memory.status).where(Memory.id == memory_id)
+        ).scalar_one_or_none()
+    except SQLAlchemyError:
+        session.rollback()
+        raise MemoryPersistenceError("Memory feedback persistence failed") from None
+
+    if status_row is None:
+        raise MemoryRecordNotFoundError("Memory not found")
+    raise MemoryFeedbackNotAcceptedError("Feedback is only accepted for active memories")
 
 
 def search_similar_active_memories(
@@ -317,7 +366,11 @@ def _search_similar_active_memories_for_sqlite(
 
 
 def _memory_record_select() -> Select[tuple[object, ...]]:
-    return select(
+    return select(*_memory_record_columns())
+
+
+def _memory_record_columns() -> tuple[object, ...]:
+    return (
         Memory.id.label("id"),
         Memory.incident_id.label("incident_id"),
         Memory.memory_type.label("memory_type"),

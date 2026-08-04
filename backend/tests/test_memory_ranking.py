@@ -44,7 +44,10 @@ def test_reliability_formula_zero_counts_returns_half() -> None:
 
 
 def test_reliability_formula_uses_successes_and_failures() -> None:
+    assert calculate_reliability(1, 0) == pytest.approx(0.67, abs=0.01)
     assert calculate_reliability(2, 0) == 0.75
+    assert calculate_reliability(0, 1) == pytest.approx(0.33, abs=0.01)
+    assert calculate_reliability(0, 2) == 0.25
     assert calculate_reliability(2, 1) == 0.6
 
 

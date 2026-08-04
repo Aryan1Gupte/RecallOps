@@ -445,6 +445,39 @@ def test_recall_similarity_is_one_minus_cosine_distance(
     assert response.json()["memories"][0]["similarity"] == 0.8766
 
 
+def test_recall_uses_updated_feedback_counts_for_reliability(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    created = client.post(
+        "/api/memories",
+        json={
+            "incident_id": incident["id"],
+            "memory_type": "resolution",
+            "summary": "Restart checkout workers to clear stale cache",
+            "root_cause": "Workers held stale cache entries",
+            "resolution": "Restarted checkout workers",
+        },
+    ).json()
+
+    feedback_response = client.post(
+        f"/api/memories/{created['id']}/feedback",
+        json={"outcome": "success"},
+    )
+    recall_response = client.post(f"/api/incidents/{incident['id']}/memory-recall")
+
+    assert feedback_response.status_code == 200
+    assert recall_response.status_code == 200
+    recalled_memory = recall_response.json()["memories"][0]
+    assert recalled_memory["success_count"] == 1
+    assert recalled_memory["failure_count"] == 0
+    assert recalled_memory["reliability"] == pytest.approx(2 / 3)
+    assert recalled_memory["final_score"] == pytest.approx(
+        0.70 * 1.0 + 0.20 * (2 / 3) + 0.10 * 1.0
+    )
+
+
 def test_public_recall_response_excludes_raw_vectors(client: TestClient) -> None:
     incident = create_test_incident(client)
     override_embedding_service(FakeEmbeddingService())

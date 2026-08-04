@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -16,12 +17,16 @@ from recallops.config import BedrockEmbeddingConfigurationError
 from recallops.repositories.incidents import get_incident
 from recallops.repositories.memories import (
     MemoryFilters,
+    MemoryFeedbackNotAcceptedError as RepositoryMemoryFeedbackNotAcceptedError,
     MemoryRecord,
+    MemoryRecordNotFoundError,
     NewMemoryRecord,
     create_memory_record,
     get_memory_record,
     list_memory_records,
+    record_memory_feedback,
 )
+from recallops.services.memory_ranking import calculate_reliability
 
 
 @dataclass(frozen=True)
@@ -52,6 +57,18 @@ class MemoryValidationError(RuntimeError):
     """Raised when memory content is valid JSON but not useful to persist."""
 
 
+class MemoryFeedbackValidationError(RuntimeError):
+    """Raised when feedback input is valid JSON but not a supported outcome."""
+
+
+class MemoryFeedbackNotFoundError(RuntimeError):
+    """Raised when feedback targets a memory that does not exist."""
+
+
+class MemoryFeedbackConflictError(RuntimeError):
+    """Raised when a memory cannot accept feedback in its current lifecycle."""
+
+
 class MemoryEmbeddingUnavailableError(RuntimeError):
     """Raised when an embedding cannot be safely generated for a memory."""
 
@@ -60,7 +77,22 @@ class MemoryEmbeddingConfigurationUnavailableError(RuntimeError):
     """Raised when memory embedding settings are incomplete."""
 
 
+@dataclass(frozen=True)
+class MemoryFeedbackResult:
+    """Service response for a successful memory feedback mutation."""
+
+    memory_id: UUID
+    outcome: str
+    success_count: int
+    failure_count: int
+    reliability: float
+    status: str
+    updated_at: datetime
+    message: str
+
+
 EmbeddingServiceFactory = Callable[[], EmbeddingService]
+VALID_MEMORY_FEEDBACK_OUTCOMES = {"success", "failure"}
 
 
 def create_memory(
@@ -145,6 +177,46 @@ def list_memories(
 
 def get_memory(session: Session, memory_id: UUID) -> MemoryRecord | None:
     return get_memory_record(session, memory_id)
+
+
+def submit_memory_feedback(
+    session: Session,
+    memory_id: UUID,
+    outcome: str,
+) -> MemoryFeedbackResult:
+    """Record user feedback for an active memory without calling AI providers."""
+
+    normalized_outcome = outcome.strip().casefold()
+    if normalized_outcome not in VALID_MEMORY_FEEDBACK_OUTCOMES:
+        raise MemoryFeedbackValidationError("Feedback outcome must be success or failure")
+
+    try:
+        memory = record_memory_feedback(session, memory_id, normalized_outcome)
+    except MemoryRecordNotFoundError:
+        raise MemoryFeedbackNotFoundError("Memory not found") from None
+    except RepositoryMemoryFeedbackNotAcceptedError:
+        raise MemoryFeedbackConflictError(
+            "Feedback is only accepted for active memories"
+        ) from None
+
+    reliability = calculate_reliability(
+        memory.success_count,
+        memory.failure_count,
+    )
+    return MemoryFeedbackResult(
+        memory_id=memory.id,
+        outcome=normalized_outcome,
+        success_count=memory.success_count,
+        failure_count=memory.failure_count,
+        reliability=reliability,
+        status=memory.status,
+        updated_at=memory.updated_at,
+        message=(
+            "Memory marked successful."
+            if normalized_outcome == "success"
+            else "Memory marked failed."
+        ),
+    )
 
 
 def _validate_embedding_result(result: EmbeddingResult) -> None:

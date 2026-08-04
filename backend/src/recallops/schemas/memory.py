@@ -4,7 +4,9 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+from recallops.services.memory_ranking import calculate_reliability
 
 
 class MemoryType(StrEnum):
@@ -18,6 +20,11 @@ class MemoryStatus(StrEnum):
     ACTIVE = "active"
     SUPERSEDED = "superseded"
     REJECTED = "rejected"
+
+
+class MemoryFeedbackOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
 
 
 class MemoryCreate(BaseModel):
@@ -80,6 +87,41 @@ class MemoryResponse(BaseModel):
     supersession_reason: str | None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def reliability(self) -> float:
+        return calculate_reliability(self.success_count, self.failure_count)
+
+
+class MemoryFeedbackCreate(BaseModel):
+    """Client-controlled memory feedback request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: MemoryFeedbackOutcome
+
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def strip_outcome(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class MemoryFeedbackResponse(BaseModel):
+    """Public response after recording memory feedback."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: UUID
+    outcome: MemoryFeedbackOutcome
+    success_count: int
+    failure_count: int
+    reliability: float
+    status: MemoryStatus
+    updated_at: datetime
+    message: str
 
 
 class RecalledMemoryResponse(BaseModel):
