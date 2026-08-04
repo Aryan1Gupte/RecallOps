@@ -17,8 +17,11 @@ import {
   createMemory,
   listMemories,
   recallIncidentMemories,
+  submitMemoryFeedback,
   type Memory,
   type MemoryCreateInput,
+  type MemoryFeedbackOutcome,
+  type MemoryFeedbackResponse,
   type MemoryRecallResponse,
   type MemoryType,
 } from './api/memories'
@@ -120,6 +123,14 @@ export default function App() {
   )
   const [memoryRecallError, setMemoryRecallError] = useState<string | null>(null)
   const [isRecallingMemories, setIsRecallingMemories] = useState(false)
+  const [feedbackPendingMemoryId, setFeedbackPendingMemoryId] =
+    useState<string | null>(null)
+  const [feedbackMessages, setFeedbackMessages] = useState<
+    Record<string, string>
+  >({})
+  const [feedbackErrors, setFeedbackErrors] = useState<Record<string, string>>(
+    {},
+  )
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
@@ -188,6 +199,45 @@ export default function App() {
     }
   }
 
+  function applyFeedbackResult(
+    memoryId: string,
+    result: MemoryFeedbackResponse,
+  ) {
+    setMemoryRecall((current) => {
+      if (!current) {
+        return current
+      }
+      return {
+        ...current,
+        memories: current.memories.map((memory) =>
+          memory.memory_id === memoryId
+            ? {
+                ...memory,
+                success_count: result.success_count,
+                failure_count: result.failure_count,
+                reliability: result.reliability,
+                status: result.status,
+              }
+            : memory,
+        ),
+      }
+    })
+    setMemories((current) =>
+      current.map((memory) =>
+        memory.id === memoryId
+          ? {
+              ...memory,
+              success_count: result.success_count,
+              failure_count: result.failure_count,
+              reliability: result.reliability,
+              status: result.status,
+              updated_at: result.updated_at,
+            }
+          : memory,
+      ),
+    )
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -235,6 +285,9 @@ export default function App() {
       setMemoryRecall(null)
       setMemoryRecallError(null)
       setIsRecallingMemories(false)
+      setFeedbackPendingMemoryId(null)
+      setFeedbackMessages({})
+      setFeedbackErrors({})
       setForm(emptyForm)
     } catch (error) {
       setFormError(readableError(error))
@@ -269,6 +322,9 @@ export default function App() {
     setMemoryRecall(null)
     setMemoryRecallError(null)
     setIsRecallingMemories(false)
+    setFeedbackPendingMemoryId(null)
+    setFeedbackMessages({})
+    setFeedbackErrors({})
 
     void refreshMemoriesForIncident(incident.id, selectedMemoryRequestId)
 
@@ -381,6 +437,8 @@ export default function App() {
         setIsMemoryListLoading(true)
         setMemoryRecall(null)
         setMemoryRecallError(null)
+        setFeedbackMessages({})
+        setFeedbackErrors({})
       }
       await refreshMemoriesForIncident(selectedIncident.id, requestId)
     } catch (error) {
@@ -404,6 +462,8 @@ export default function App() {
     recallRequestId.current = requestId
     setIsRecallingMemories(true)
     setMemoryRecallError(null)
+    setFeedbackMessages({})
+    setFeedbackErrors({})
 
     try {
       const result = await recallIncidentMemories(selectedIncident.id)
@@ -418,6 +478,41 @@ export default function App() {
       if (recallRequestId.current === requestId) {
         setIsRecallingMemories(false)
       }
+    }
+  }
+
+  async function handleMemoryFeedback(
+    memoryId: string,
+    outcome: MemoryFeedbackOutcome,
+  ) {
+    setFeedbackPendingMemoryId(memoryId)
+    setFeedbackErrors((current) => {
+      const next = { ...current }
+      delete next[memoryId]
+      return next
+    })
+    setFeedbackMessages((current) => {
+      const next = { ...current }
+      delete next[memoryId]
+      return next
+    })
+
+    try {
+      const result = await submitMemoryFeedback(memoryId, { outcome })
+      applyFeedbackResult(memoryId, result)
+      setFeedbackMessages((current) => ({
+        ...current,
+        [memoryId]: `${result.message} Reliability updated. Recall again to refresh final ranking.`,
+      }))
+    } catch (error) {
+      setFeedbackErrors((current) => ({
+        ...current,
+        [memoryId]: readableError(error),
+      }))
+    } finally {
+      setFeedbackPendingMemoryId((current) =>
+        current === memoryId ? null : current,
+      )
     }
   }
 
@@ -872,6 +967,57 @@ export default function App() {
                             <p className="recall-explanation">
                               {memory.why_recalled}
                             </p>
+                            <div className="feedback-panel">
+                              <div className="feedback-actions">
+                                <button
+                                  className="secondary-button feedback-button"
+                                  type="button"
+                                  onClick={() =>
+                                    void handleMemoryFeedback(
+                                      memory.memory_id,
+                                      'success',
+                                    )
+                                  }
+                                  disabled={
+                                    feedbackPendingMemoryId === memory.memory_id
+                                  }
+                                >
+                                  {feedbackPendingMemoryId === memory.memory_id
+                                    ? 'Recording…'
+                                    : 'Mark successful'}
+                                </button>
+                                <button
+                                  className="secondary-button feedback-button"
+                                  type="button"
+                                  onClick={() =>
+                                    void handleMemoryFeedback(
+                                      memory.memory_id,
+                                      'failure',
+                                    )
+                                  }
+                                  disabled={
+                                    feedbackPendingMemoryId === memory.memory_id
+                                  }
+                                >
+                                  {feedbackPendingMemoryId === memory.memory_id
+                                    ? 'Recording…'
+                                    : 'Mark failed'}
+                                </button>
+                              </div>
+                              {feedbackMessages[memory.memory_id] && (
+                                <p className="feedback-message">
+                                  {feedbackMessages[memory.memory_id]}
+                                </p>
+                              )}
+                              {feedbackErrors[memory.memory_id] && (
+                                <p
+                                  className="feedback-message feedback-error"
+                                  role="alert"
+                                >
+                                  {feedbackErrors[memory.memory_id]}
+                                </p>
+                              )}
+                            </div>
                           </article>
                         ))}
                       </div>
@@ -1006,6 +1152,10 @@ export default function App() {
                             <div>
                               <dt>Failures</dt>
                               <dd>{memory.failure_count}</dd>
+                            </div>
+                            <div>
+                              <dt>Reliability</dt>
+                              <dd>{formatSimilarity(memory.reliability)}</dd>
                             </div>
                           </dl>
                         </article>

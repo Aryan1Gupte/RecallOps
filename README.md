@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Feedback mutation workflows, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Supersession workflows, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -218,6 +218,38 @@ Retrieve one memory by ID:
 curl http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000
 ```
 
-The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows already include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, later feedback, and later supersession workflows have stable storage. This milestone reads success/failure counts for ranking, but still does not implement feedback buttons, success/failure mutation workflows, supersession workflows, usage tracking, or agent retrieval behavior.
+Record feedback for an active memory:
+
+```bash
+curl --request POST \
+  http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000/feedback \
+  --header 'Content-Type: application/json' \
+  --data '{"outcome": "success"}'
+
+curl --request POST \
+  http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000/feedback \
+  --header 'Content-Type: application/json' \
+  --data '{"outcome": "failure"}'
+```
+
+Feedback is a pure database mutation and does not call Bedrock, Titan, Nova, or any other model provider. `"success"` increments `success_count`; `"failure"` increments `failure_count`; both update `updated_at`. Feedback is accepted only for active memories. Superseded and rejected memories return a safe conflict response because status-changing workflows are still deferred.
+
+Reliability is derived from counts and is not stored as a database column:
+
+```text
+reliability = (success_count + 1) / (success_count + failure_count + 2)
+```
+
+Examples:
+
+- `0` successes, `0` failures -> `0.50`
+- `1` success, `0` failures -> `0.67`
+- `2` successes, `0` failures -> `0.75`
+- `0` successes, `1` failure -> `0.33`
+- `0` successes, `2` failures -> `0.25`
+
+Updated reliability appears in memory list/get responses and in future recall ranking results. The frontend updates visible counts and reliability after feedback, and the user can run recall again to refresh final ranking order. Raw vectors are never returned publicly.
+
+The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows already include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and later supersession workflows have stable storage. This milestone implements success/failure counter feedback, but still does not implement supersession workflows, rejected-memory workflows, memory deletion, usage event tables, or agent retrieval behavior.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.

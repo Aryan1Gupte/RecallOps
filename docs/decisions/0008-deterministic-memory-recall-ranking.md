@@ -33,7 +33,7 @@ Same-service is a small boost rather than a hard filter. Related incidents can s
 
 The API returns a short deterministic `why_recalled` explanation assembled from the score components. It does not call Nova, Titan, or any LLM to generate ranking explanations.
 
-Feedback mutation workflows are deferred. This milestone reads `success_count` and `failure_count`, but it does not add feedback buttons, success/failure mutation endpoints, supersession mutation workflows, or agent loops. Those workflows need explicit product semantics and audit behavior before they can update ranking evidence.
+Feedback mutation workflows are deferred from the deterministic ranking milestone. This milestone reads `success_count` and `failure_count`, but it does not add feedback buttons, success/failure mutation endpoints, supersession mutation workflows, or agent loops. ADR 0009 documents the later active-memory feedback counter workflow.
 
 ## Consequences
 

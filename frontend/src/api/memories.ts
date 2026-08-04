@@ -6,6 +6,8 @@ export type MemoryType =
 
 export type MemoryStatus = 'active' | 'superseded' | 'rejected'
 
+export type MemoryFeedbackOutcome = 'success' | 'failure'
+
 export interface Memory {
   id: string
   incident_id: string | null
@@ -18,6 +20,7 @@ export interface Memory {
   embedding_dimension: number
   success_count: number
   failure_count: number
+  reliability: number
   status: MemoryStatus
   superseded_by: string | null
   superseded_at: string | null
@@ -80,6 +83,21 @@ export interface MemoryRecallOptions {
   min_similarity?: number
 }
 
+export interface MemoryFeedbackInput {
+  outcome: MemoryFeedbackOutcome
+}
+
+export interface MemoryFeedbackResponse {
+  memory_id: string
+  outcome: MemoryFeedbackOutcome
+  success_count: number
+  failure_count: number
+  reliability: number
+  status: MemoryStatus
+  updated_at: string
+  message: string
+}
+
 const API_BASE_PATH = '/api'
 
 class MemoryApiError extends Error {
@@ -95,6 +113,9 @@ function messageForStatus(status: number): string {
   }
   if (status === 422) {
     return 'Please check the memory details and try again.'
+  }
+  if (status === 409) {
+    return 'Feedback is only accepted for active memories.'
   }
   if (status === 502) {
     return 'The embedding service could not complete this memory request. Please try again.'
@@ -175,5 +196,21 @@ export function recallIncidentMemories(
       query ? `?${query}` : ''
     }`,
     { method: 'POST' },
+  )
+}
+
+export function submitMemoryFeedback(
+  memoryId: string,
+  input: MemoryFeedbackInput,
+): Promise<MemoryFeedbackResponse> {
+  return request<MemoryFeedbackResponse>(
+    `/memories/${encodeURIComponent(memoryId)}/feedback`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
   )
 }
