@@ -802,6 +802,49 @@ dd {
   color: #9f2f30;
 }
 
+.lifecycle-details {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #e2e9e4;
+}
+
+.lifecycle-details p,
+.lifecycle-note {
+  margin: 0;
+  color: #5c6c63;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.lifecycle-details strong {
+  color: #34483d;
+}
+
+.lifecycle-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #e2e9e4;
+}
+
+.lifecycle-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.lifecycle-grid-wide {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.lifecycle-button {
+  min-height: 2rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.7rem;
+}
+
 .memory-loading {
   color: #6a7a70;
   font-size: 0.72rem;
@@ -954,6 +997,8 @@ dd {
   .analysis-grid,
   .embedding-metadata,
   .recall-metadata,
+  .lifecycle-grid,
+  .lifecycle-grid-wide,
   .memory-form-grid,
   .memory-metadata {
     grid-template-columns: 1fr;

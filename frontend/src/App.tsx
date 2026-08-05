@@ -17,12 +17,17 @@ import {
   createMemory,
   listMemories,
   recallIncidentMemories,
+  rejectMemory,
   submitMemoryFeedback,
+  supersedeMemory,
   type Memory,
   type MemoryCreateInput,
   type MemoryFeedbackOutcome,
   type MemoryFeedbackResponse,
+  type MemoryRejectResponse,
   type MemoryRecallResponse,
+  type MemoryStatus,
+  type MemorySupersedeResponse,
   type MemoryType,
 } from './api/memories'
 
@@ -53,6 +58,13 @@ interface MemoryFormState {
   root_cause: string
   resolution: string
 }
+
+interface SupersedeFormState {
+  superseded_by: string
+  reason: string
+}
+
+type MemoryLifecycleAction = 'reject' | 'supersede'
 
 const emptyMemoryForm: MemoryFormState = {
   memory_type: 'resolution',
@@ -131,6 +143,20 @@ export default function App() {
   const [feedbackErrors, setFeedbackErrors] = useState<Record<string, string>>(
     {},
   )
+  const [lifecyclePending, setLifecyclePending] = useState<{
+    memoryId: string
+    action: MemoryLifecycleAction
+  } | null>(null)
+  const [lifecycleMessages, setLifecycleMessages] = useState<
+    Record<string, string>
+  >({})
+  const [lifecycleErrors, setLifecycleErrors] = useState<Record<string, string>>(
+    {},
+  )
+  const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({})
+  const [supersedeForms, setSupersedeForms] = useState<
+    Record<string, SupersedeFormState>
+  >({})
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
@@ -238,6 +264,92 @@ export default function App() {
     )
   }
 
+  function applyLifecycleResult(
+    memoryId: string,
+    result: MemoryRejectResponse | MemorySupersedeResponse,
+  ) {
+    const supersededBy =
+      'superseded_by' in result ? result.superseded_by : null
+    const supersededAt =
+      'superseded_at' in result ? result.superseded_at : null
+
+    setMemoryRecall((current) => {
+      if (!current) {
+        return current
+      }
+      return {
+        ...current,
+        memories: current.memories.map((memory) =>
+          memory.memory_id === memoryId
+            ? {
+                ...memory,
+                status: result.status,
+                superseded_by: supersededBy,
+                superseded_at: supersededAt,
+                supersession_reason: result.supersession_reason,
+              }
+            : memory,
+        ),
+      }
+    })
+    setMemories((current) =>
+      current.map((memory) =>
+        memory.id === memoryId
+          ? {
+              ...memory,
+              status: result.status,
+              superseded_by: supersededBy,
+              superseded_at: supersededAt,
+              supersession_reason: result.supersession_reason,
+              updated_at: result.updated_at,
+            }
+          : memory,
+      ),
+    )
+  }
+
+  function clearLifecycleMessages(memoryId: string) {
+    setLifecycleErrors((current) => {
+      const next = { ...current }
+      delete next[memoryId]
+      return next
+    })
+    setLifecycleMessages((current) => {
+      const next = { ...current }
+      delete next[memoryId]
+      return next
+    })
+  }
+
+  function setRejectReason(memoryId: string, reason: string) {
+    setRejectReasons((current) => ({ ...current, [memoryId]: reason }))
+  }
+
+  function updateSupersedeForm(
+    memoryId: string,
+    field: keyof SupersedeFormState,
+    value: string,
+  ) {
+    setSupersedeForms((current) => ({
+      ...current,
+      [memoryId]: {
+        superseded_by: current[memoryId]?.superseded_by ?? '',
+        reason: current[memoryId]?.reason ?? '',
+        [field]: value,
+      },
+    }))
+  }
+
+  function refreshSelectedIncidentMemories() {
+    if (!selectedIncident) {
+      return
+    }
+    const requestId = memoryRequestId.current + 1
+    memoryRequestId.current = requestId
+    setIsMemoryListLoading(true)
+    void refreshMemoriesForIncident(selectedIncident.id, requestId)
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -288,6 +400,11 @@ export default function App() {
       setFeedbackPendingMemoryId(null)
       setFeedbackMessages({})
       setFeedbackErrors({})
+      setLifecyclePending(null)
+      setLifecycleMessages({})
+      setLifecycleErrors({})
+      setRejectReasons({})
+      setSupersedeForms({})
       setForm(emptyForm)
     } catch (error) {
       setFormError(readableError(error))
@@ -325,6 +442,11 @@ export default function App() {
     setFeedbackPendingMemoryId(null)
     setFeedbackMessages({})
     setFeedbackErrors({})
+    setLifecyclePending(null)
+    setLifecycleMessages({})
+    setLifecycleErrors({})
+    setRejectReasons({})
+    setSupersedeForms({})
 
     void refreshMemoriesForIncident(incident.id, selectedMemoryRequestId)
 
@@ -439,6 +561,10 @@ export default function App() {
         setMemoryRecallError(null)
         setFeedbackMessages({})
         setFeedbackErrors({})
+        setLifecycleMessages({})
+        setLifecycleErrors({})
+        setRejectReasons({})
+        setSupersedeForms({})
       }
       await refreshMemoriesForIncident(selectedIncident.id, requestId)
     } catch (error) {
@@ -464,6 +590,8 @@ export default function App() {
     setMemoryRecallError(null)
     setFeedbackMessages({})
     setFeedbackErrors({})
+    setLifecycleMessages({})
+    setLifecycleErrors({})
 
     try {
       const result = await recallIncidentMemories(selectedIncident.id)
@@ -514,6 +642,213 @@ export default function App() {
         current === memoryId ? null : current,
       )
     }
+  }
+
+  async function handleRejectMemory(memoryId: string) {
+    clearLifecycleMessages(memoryId)
+    setLifecyclePending({ memoryId, action: 'reject' })
+
+    const reason = rejectReasons[memoryId]?.trim()
+
+    try {
+      const result = await rejectMemory(memoryId, reason ? { reason } : {})
+      applyLifecycleResult(memoryId, result)
+      setLifecycleMessages((current) => ({
+        ...current,
+        [memoryId]: `${result.message} It will be preserved but excluded from future recall.`,
+      }))
+      setRejectReasons((current) => {
+        const next = { ...current }
+        delete next[memoryId]
+        return next
+      })
+      refreshSelectedIncidentMemories()
+    } catch (error) {
+      setLifecycleErrors((current) => ({
+        ...current,
+        [memoryId]: readableError(error),
+      }))
+    } finally {
+      setLifecyclePending((current) =>
+        current?.memoryId === memoryId && current.action === 'reject'
+          ? null
+          : current,
+      )
+    }
+  }
+
+  async function handleSupersedeMemory(memoryId: string) {
+    const formState = supersedeForms[memoryId] ?? {
+      superseded_by: '',
+      reason: '',
+    }
+    const supersededBy = formState.superseded_by.trim()
+    const reason = formState.reason.trim()
+
+    clearLifecycleMessages(memoryId)
+    if (!supersededBy) {
+      setLifecycleErrors((current) => ({
+        ...current,
+        [memoryId]: 'Replacement memory ID is required.',
+      }))
+      return
+    }
+
+    setLifecyclePending({ memoryId, action: 'supersede' })
+
+    try {
+      const result = await supersedeMemory(memoryId, {
+        superseded_by: supersededBy,
+        ...(reason ? { reason } : {}),
+      })
+      applyLifecycleResult(memoryId, result)
+      setLifecycleMessages((current) => ({
+        ...current,
+        [memoryId]: `${result.message} It will be preserved but excluded from future recall.`,
+      }))
+      setSupersedeForms((current) => {
+        const next = { ...current }
+        delete next[memoryId]
+        return next
+      })
+      refreshSelectedIncidentMemories()
+    } catch (error) {
+      setLifecycleErrors((current) => ({
+        ...current,
+        [memoryId]: readableError(error),
+      }))
+    } finally {
+      setLifecyclePending((current) =>
+        current?.memoryId === memoryId && current.action === 'supersede'
+          ? null
+          : current,
+      )
+    }
+  }
+
+  function renderLifecycleDetails(memory: {
+    superseded_by: string | null
+    supersession_reason: string | null
+  }) {
+    if (!memory.superseded_by && !memory.supersession_reason) {
+      return null
+    }
+    return (
+      <div className="lifecycle-details">
+        {memory.superseded_by && (
+          <p>
+            <strong>Superseded by:</strong> {memory.superseded_by}
+          </p>
+        )}
+        {memory.supersession_reason && (
+          <p>
+            <strong>Reason:</strong> {memory.supersession_reason}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  function renderLifecycleControls(memoryId: string, status: MemoryStatus) {
+    const pendingReject =
+      lifecyclePending?.memoryId === memoryId &&
+      lifecyclePending.action === 'reject'
+    const pendingSupersede =
+      lifecyclePending?.memoryId === memoryId &&
+      lifecyclePending.action === 'supersede'
+    const supersedeState = supersedeForms[memoryId] ?? {
+      superseded_by: '',
+      reason: '',
+    }
+
+    if (status !== 'active') {
+      return (
+        <div className="lifecycle-panel">
+          <p className="lifecycle-note">
+            Inactive memories are preserved and excluded from future recall.
+          </p>
+          {lifecycleMessages[memoryId] && (
+            <p className="feedback-message">{lifecycleMessages[memoryId]}</p>
+          )}
+          {lifecycleErrors[memoryId] && (
+            <p className="feedback-message feedback-error" role="alert">
+              {lifecycleErrors[memoryId]}
+            </p>
+          )}
+        </div>
+      )
+    }
+
+    return (
+      <div className="lifecycle-panel">
+        <div className="lifecycle-grid">
+          <label>
+            Reject reason
+            <input
+              value={rejectReasons[memoryId] ?? ''}
+              onChange={(event) =>
+                setRejectReason(memoryId, event.target.value)
+              }
+              maxLength={4000}
+              placeholder="Too vague or incorrect"
+            />
+          </label>
+          <button
+            className="secondary-button lifecycle-button"
+            type="button"
+            onClick={() => void handleRejectMemory(memoryId)}
+            disabled={pendingReject || pendingSupersede}
+          >
+            {pendingReject ? 'Rejecting…' : 'Reject memory'}
+          </button>
+        </div>
+
+        <div className="lifecycle-grid lifecycle-grid-wide">
+          <label>
+            Replacement memory ID
+            <input
+              value={supersedeState.superseded_by}
+              onChange={(event) =>
+                updateSupersedeForm(
+                  memoryId,
+                  'superseded_by',
+                  event.target.value,
+                )
+              }
+              placeholder="00000000-0000-0000-0000-000000000000"
+            />
+          </label>
+          <label>
+            Supersession reason
+            <input
+              value={supersedeState.reason}
+              onChange={(event) =>
+                updateSupersedeForm(memoryId, 'reason', event.target.value)
+              }
+              maxLength={4000}
+              placeholder="Newer resolution replaced this memory"
+            />
+          </label>
+          <button
+            className="secondary-button lifecycle-button"
+            type="button"
+            onClick={() => void handleSupersedeMemory(memoryId)}
+            disabled={pendingReject || pendingSupersede}
+          >
+            {pendingSupersede ? 'Superseding…' : 'Supersede memory'}
+          </button>
+        </div>
+
+        {lifecycleMessages[memoryId] && (
+          <p className="feedback-message">{lifecycleMessages[memoryId]}</p>
+        )}
+        {lifecycleErrors[memoryId] && (
+          <p className="feedback-message feedback-error" role="alert">
+            {lifecycleErrors[memoryId]}
+          </p>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -917,6 +1252,11 @@ export default function App() {
                                 <span className="memory-type">
                                   {formatMemoryType(memory.memory_type)}
                                 </span>
+                                <span
+                                  className={`memory-status status-${memory.status}`}
+                                >
+                                  {memory.status}
+                                </span>
                               </div>
                               <div className="recall-score-group">
                                 <span className="recall-score">
@@ -967,6 +1307,7 @@ export default function App() {
                             <p className="recall-explanation">
                               {memory.why_recalled}
                             </p>
+                            {renderLifecycleDetails(memory)}
                             <div className="feedback-panel">
                               <div className="feedback-actions">
                                 <button
@@ -979,7 +1320,8 @@ export default function App() {
                                     )
                                   }
                                   disabled={
-                                    feedbackPendingMemoryId === memory.memory_id
+                                    feedbackPendingMemoryId === memory.memory_id ||
+                                    memory.status !== 'active'
                                   }
                                 >
                                   {feedbackPendingMemoryId === memory.memory_id
@@ -996,7 +1338,8 @@ export default function App() {
                                     )
                                   }
                                   disabled={
-                                    feedbackPendingMemoryId === memory.memory_id
+                                    feedbackPendingMemoryId === memory.memory_id ||
+                                    memory.status !== 'active'
                                   }
                                 >
                                   {feedbackPendingMemoryId === memory.memory_id
@@ -1004,6 +1347,11 @@ export default function App() {
                                     : 'Mark failed'}
                                 </button>
                               </div>
+                              {memory.status !== 'active' && (
+                                <p className="lifecycle-note">
+                                  Feedback is accepted only for active memories.
+                                </p>
+                              )}
                               {feedbackMessages[memory.memory_id] && (
                                 <p className="feedback-message">
                                   {feedbackMessages[memory.memory_id]}
@@ -1018,6 +1366,10 @@ export default function App() {
                                 </p>
                               )}
                             </div>
+                            {renderLifecycleControls(
+                              memory.memory_id,
+                              memory.status,
+                            )}
                           </article>
                         ))}
                       </div>
@@ -1158,6 +1510,8 @@ export default function App() {
                               <dd>{formatSimilarity(memory.reliability)}</dd>
                             </div>
                           </dl>
+                          {renderLifecycleDetails(memory)}
+                          {renderLifecycleControls(memory.id, memory.status)}
                         </article>
                       ))}
                     </div>

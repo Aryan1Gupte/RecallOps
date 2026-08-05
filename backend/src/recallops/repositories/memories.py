@@ -25,6 +25,14 @@ class MemoryFeedbackNotAcceptedError(RuntimeError):
     """Raised when a memory cannot accept feedback in its current status."""
 
 
+class MemoryLifecycleConflictError(RuntimeError):
+    """Raised when lifecycle changes conflict with the current status."""
+
+
+class ReplacementMemoryRecordNotFoundError(RuntimeError):
+    """Raised when a supersession replacement memory does not exist."""
+
+
 @dataclass(frozen=True)
 class NewMemoryRecord:
     incident_id: UUID | None
@@ -80,6 +88,9 @@ class SimilarMemoryRecord:
     success_count: int
     failure_count: int
     status: str
+    superseded_by: UUID | None
+    superseded_at: datetime | None
+    supersession_reason: str | None
     cosine_distance: float
     created_at: datetime
 
@@ -172,6 +183,125 @@ def record_memory_feedback(
     if status_row is None:
         raise MemoryRecordNotFoundError("Memory not found")
     raise MemoryFeedbackNotAcceptedError("Feedback is only accepted for active memories")
+
+
+def reject_memory_record(
+    session: Session,
+    memory_id: UUID,
+    reason: str,
+) -> MemoryRecord:
+    """Mark one active memory rejected while preserving the row."""
+
+    statement = (
+        update(Memory)
+        .where(Memory.id == memory_id, Memory.status == "active")
+        .values(
+            status="rejected",
+            supersession_reason=reason,
+            updated_at=func.now(),
+        )
+        .returning(*_memory_record_columns())
+    )
+
+    try:
+        row = session.execute(statement).mappings().one_or_none()
+        if row is not None:
+            session.commit()
+            return _memory_record_from_mapping(row)
+
+        session.rollback()
+        existing = _get_memory_record_without_boundary(session, memory_id)
+    except SQLAlchemyError:
+        session.rollback()
+        raise MemoryPersistenceError("Memory lifecycle persistence failed") from None
+
+    if existing is None:
+        raise MemoryRecordNotFoundError("Memory not found")
+    if existing.status == "rejected":
+        return existing
+    if existing.status == "superseded":
+        raise MemoryLifecycleConflictError(
+            "Superseded memories cannot be rejected in this workflow"
+        )
+    raise MemoryLifecycleConflictError("Memory cannot be rejected in this workflow")
+
+
+def supersede_memory_record(
+    session: Session,
+    memory_id: UUID,
+    superseded_by: UUID,
+    reason: str,
+) -> MemoryRecord:
+    """Mark one active memory superseded by another active memory."""
+
+    try:
+        original = _get_memory_record_without_boundary(session, memory_id)
+    except SQLAlchemyError:
+        session.rollback()
+        raise MemoryPersistenceError("Memory lifecycle persistence failed") from None
+
+    if original is None:
+        session.rollback()
+        raise MemoryRecordNotFoundError("Memory not found")
+    if original.status == "superseded":
+        session.rollback()
+        return original
+    if original.status == "rejected":
+        session.rollback()
+        raise MemoryLifecycleConflictError(
+            "Rejected memories cannot be superseded in this workflow"
+        )
+    if original.status != "active":
+        session.rollback()
+        raise MemoryLifecycleConflictError("Memory cannot be superseded in this workflow")
+
+    try:
+        replacement = _get_memory_record_without_boundary(session, superseded_by)
+    except SQLAlchemyError:
+        session.rollback()
+        raise MemoryPersistenceError("Memory lifecycle persistence failed") from None
+
+    if replacement is None:
+        session.rollback()
+        raise ReplacementMemoryRecordNotFoundError("Replacement memory not found")
+    if replacement.status != "active":
+        session.rollback()
+        raise MemoryLifecycleConflictError("Replacement memory must be active")
+
+    statement = (
+        update(Memory)
+        .where(Memory.id == memory_id, Memory.status == "active")
+        .values(
+            status="superseded",
+            superseded_by=superseded_by,
+            superseded_at=func.now(),
+            supersession_reason=reason,
+            updated_at=func.now(),
+        )
+        .returning(*_memory_record_columns())
+    )
+
+    try:
+        row = session.execute(statement).mappings().one_or_none()
+        if row is not None:
+            session.commit()
+            return _memory_record_from_mapping(row)
+
+        session.rollback()
+        existing = _get_memory_record_without_boundary(session, memory_id)
+    except SQLAlchemyError:
+        session.rollback()
+        raise MemoryPersistenceError("Memory lifecycle persistence failed") from None
+
+    if existing is None:
+        raise MemoryRecordNotFoundError("Memory not found")
+    if existing.status == "superseded":
+        return existing
+    if existing.status == "rejected":
+        raise MemoryLifecycleConflictError(
+            "Rejected memories cannot be superseded in this workflow"
+        )
+    raise MemoryLifecycleConflictError("Memory cannot be superseded in this workflow")
 
 
 def search_similar_active_memories(
@@ -313,6 +443,9 @@ def _search_similar_active_memories_for_cockroach(
             memories.success_count,
             memories.failure_count,
             memories.status,
+            memories.superseded_by,
+            memories.superseded_at,
+            memories.supersession_reason,
             memories.embedding <=> CAST(:query_vector AS VECTOR(1024)) AS cosine_distance,
             memories.created_at
         FROM memories
@@ -367,6 +500,20 @@ def _search_similar_active_memories_for_sqlite(
 
 def _memory_record_select() -> Select[tuple[object, ...]]:
     return select(*_memory_record_columns())
+
+
+def _get_memory_record_without_boundary(
+    session: Session,
+    memory_id: UUID,
+) -> MemoryRecord | None:
+    row = (
+        session.execute(_memory_record_select().where(Memory.id == memory_id))
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return _memory_record_from_mapping(row)
 
 
 def _memory_record_columns() -> tuple[object, ...]:
@@ -449,6 +596,9 @@ def _similar_memory_record_from_mapping(row: RowMapping) -> SimilarMemoryRecord:
         success_count=row["success_count"],
         failure_count=row["failure_count"],
         status=row["status"],
+        superseded_by=row["superseded_by"],
+        superseded_at=row["superseded_at"],
+        supersession_reason=row["supersession_reason"],
         cosine_distance=float(row["cosine_distance"]),
         created_at=row["created_at"],
     )
@@ -472,6 +622,9 @@ def _similar_memory_record_from_model(
         success_count=memory.success_count,
         failure_count=memory.failure_count,
         status=memory.status,
+        superseded_by=memory.superseded_by,
+        superseded_at=memory.superseded_at,
+        supersession_reason=memory.supersession_reason,
         cosine_distance=cosine_distance,
         created_at=memory.created_at,
     )

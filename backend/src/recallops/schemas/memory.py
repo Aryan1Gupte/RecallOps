@@ -124,6 +124,69 @@ class MemoryFeedbackResponse(BaseModel):
     message: str
 
 
+class MemoryRejectCreate(BaseModel):
+    """Client-controlled memory rejection request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_optional_reason(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+class MemoryRejectResponse(BaseModel):
+    """Public response after rejecting a memory."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: UUID
+    status: MemoryStatus
+    supersession_reason: str | None
+    updated_at: datetime
+    message: str
+
+
+class MemorySupersedeCreate(BaseModel):
+    """Client-controlled memory supersession request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    superseded_by: UUID
+    reason: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_optional_reason(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+class MemorySupersedeResponse(BaseModel):
+    """Public response after superseding a memory."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: UUID
+    status: MemoryStatus
+    superseded_by: UUID | None
+    superseded_at: datetime | None
+    supersession_reason: str | None
+    updated_at: datetime
+    message: str
+
+
 class RecalledMemoryResponse(BaseModel):
     """One memory returned from semantic recall without vector values."""
 
@@ -140,6 +203,9 @@ class RecalledMemoryResponse(BaseModel):
     embedding_dimension: int
     success_count: int
     failure_count: int
+    superseded_by: UUID | None = None
+    superseded_at: datetime | None = None
+    supersession_reason: str | None = None
     cosine_distance: float
     similarity: float
     reliability: float

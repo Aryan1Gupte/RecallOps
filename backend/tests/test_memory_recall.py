@@ -78,6 +78,9 @@ def similar_memory(
         success_count=success_count,
         failure_count=failure_count,
         status=status,
+        superseded_by=None,
+        superseded_at=None,
+        supersession_reason=None,
         cosine_distance=cosine_distance,
         created_at=created_at
         or datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -142,6 +145,9 @@ def test_recall_endpoint_success_with_fake_embedding_and_repository(
         "embedding_dimension": 1024,
         "success_count": 2,
         "failure_count": 1,
+        "superseded_by": None,
+        "superseded_at": None,
+        "supersession_reason": None,
         "cosine_distance": 0.25,
         "similarity": 0.75,
         "reliability": 0.6,
@@ -236,10 +242,16 @@ def test_recall_only_returns_active_memories(client: TestClient) -> None:
                 summary="Inactive high-similarity memory",
             ),
             similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000110",
+                status="superseded",
+                cosine_distance=0.02,
+                summary="Superseded high-similarity memory",
+            ),
+            similar_memory(
                 memory_id="00000000-0000-0000-0000-000000000103",
                 status="active",
                 cosine_distance=0.2,
-                summary="Active memory",
+                summary="Active replacement memory",
             ),
         ]
     )
@@ -248,7 +260,51 @@ def test_recall_only_returns_active_memories(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert [memory["summary"] for memory in response.json()["memories"]] == [
-        "Active memory"
+        "Active replacement memory"
+    ]
+
+
+def test_inactive_memory_metadata_cannot_rescue_recall_candidate(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    override_memory_searcher(
+        lambda session, query_vector, limit: [
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000111",
+                status="rejected",
+                memory_incident_service="checkout-api",
+                cosine_distance=0.01,
+                summary="Rejected memory with strong metadata",
+                success_count=500,
+                failure_count=0,
+            ),
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000112",
+                status="superseded",
+                memory_incident_service="checkout-api",
+                cosine_distance=0.01,
+                summary="Superseded memory with strong metadata",
+                success_count=500,
+                failure_count=0,
+            ),
+            similar_memory(
+                memory_id="00000000-0000-0000-0000-000000000113",
+                status="active",
+                cosine_distance=0.35,
+                summary="Active lower-metadata memory",
+                success_count=0,
+                failure_count=0,
+            ),
+        ]
+    )
+
+    response = client.post(f"/api/incidents/{incident['id']}/memory-recall")
+
+    assert response.status_code == 200
+    assert [memory["summary"] for memory in response.json()["memories"]] == [
+        "Active lower-metadata memory"
     ]
 
 

@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Supersession workflows, MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -183,7 +183,7 @@ final_score = 0.70 * semantic_similarity + 0.20 * reliability + 0.10 * same_serv
 reliability = (success_count + 1) / (success_count + failure_count + 2)
 ```
 
-`same_service_score` is `1.0` when the memory is linked to an incident with the same service as the selected incident and `0.0` otherwise. Recall returns memory metadata, cosine distance, semantic similarity, reliability, same-service metadata, final score, rank, and `why_recalled`. The `why_recalled` explanation is deterministic and generated from the score components; it is not produced by Nova, Titan, or any LLM. Recall never returns the query vector or stored memory vectors. Superseded and rejected memories are excluded.
+`same_service_score` is `1.0` when the memory is linked to an incident with the same service as the selected incident and `0.0` otherwise. Recall returns memory metadata, cosine distance, semantic similarity, reliability, same-service metadata, final score, rank, and `why_recalled`. The `why_recalled` explanation is deterministic and generated from the score components; it is not produced by Nova, Titan, or any LLM. Recall never returns the query vector or stored memory vectors. Superseded and rejected memories are preserved in the database but excluded from recall.
 
 ## Memory API examples
 
@@ -232,7 +232,7 @@ curl --request POST \
   --data '{"outcome": "failure"}'
 ```
 
-Feedback is a pure database mutation and does not call Bedrock, Titan, Nova, or any other model provider. `"success"` increments `success_count`; `"failure"` increments `failure_count`; both update `updated_at`. Feedback is accepted only for active memories. Superseded and rejected memories return a safe conflict response because status-changing workflows are still deferred.
+Feedback is a pure database mutation and does not call Bedrock, Titan, Nova, or any other model provider. `"success"` increments `success_count`; `"failure"` increments `failure_count`; both update `updated_at`. Feedback is accepted only for active memories. Superseded and rejected memories return a safe conflict response.
 
 Reliability is derived from counts and is not stored as a database column:
 
@@ -250,6 +250,33 @@ Examples:
 
 Updated reliability appears in memory list/get responses and in future recall ranking results. The frontend updates visible counts and reliability after feedback, and the user can run recall again to refresh final ranking order. Raw vectors are never returned publicly.
 
-The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows already include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and later supersession workflows have stable storage. This milestone implements success/failure counter feedback, but still does not implement supersession workflows, rejected-memory workflows, memory deletion, usage event tables, or agent retrieval behavior.
+Reject an active memory while preserving the row:
+
+```bash
+curl --request POST \
+  http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000/reject \
+  --header 'Content-Type: application/json' \
+  --data '{"reason": "This memory was too vague or incorrect."}'
+```
+
+If the memory is active, RecallOps sets `status` to `rejected`, stores the reason in `supersession_reason`, updates `updated_at`, and leaves success/failure counters unchanged. If the memory is already rejected, the endpoint returns the current rejected state safely. Superseded memories cannot be rejected through this workflow.
+
+Supersede an active memory with another active memory:
+
+```bash
+curl --request POST \
+  http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000/supersede \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "superseded_by": "11111111-1111-1111-1111-111111111111",
+    "reason": "Newer resolution replaced the old procedure."
+  }'
+```
+
+If both memories exist and the replacement is active, RecallOps sets the original memory to `superseded`, records `superseded_by`, `superseded_at`, `supersession_reason`, and `updated_at`, and does not modify the replacement memory. A memory cannot supersede itself. Rejected memories cannot be superseded through this workflow. If the original memory is already superseded, the endpoint returns the current superseded state safely rather than rewriting its audit fields.
+
+Lifecycle actions are deterministic database mutations and do not call Bedrock, Titan, Nova, vector search, or any other model provider. They do not delete rows. Inactive memories remain available through memory list/get APIs but are excluded from future recall, and feedback remains accepted only for active memories.
+
+The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and lifecycle workflows have stable storage. This milestone still does not implement memory deletion, automatic stale-memory detection, audit/event tables, or agent retrieval behavior.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.

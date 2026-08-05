@@ -34,6 +34,9 @@ def ranking_candidate(
         embedding_dimension=1024,
         success_count=success_count,
         failure_count=failure_count,
+        superseded_by=None,
+        superseded_at=None,
+        supersession_reason=None,
         cosine_distance=cosine_distance,
         created_at=created_at,
     )

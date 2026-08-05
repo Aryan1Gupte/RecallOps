@@ -28,6 +28,9 @@ class MemoryRankingCandidate:
     embedding_dimension: int
     success_count: int
     failure_count: int
+    superseded_by: UUID | None
+    superseded_at: datetime | None
+    supersession_reason: str | None
     cosine_distance: float
     created_at: datetime | None
 

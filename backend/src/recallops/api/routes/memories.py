@@ -16,8 +16,12 @@ from recallops.schemas.memory import (
     MemoryCreate,
     MemoryFeedbackCreate,
     MemoryFeedbackResponse,
+    MemoryRejectCreate,
+    MemoryRejectResponse,
     MemoryResponse,
     MemoryStatus,
+    MemorySupersedeCreate,
+    MemorySupersedeResponse,
     MemoryType,
 )
 from recallops.services.memories import (
@@ -28,11 +32,16 @@ from recallops.services.memories import (
     MemoryFeedbackConflictError,
     MemoryFeedbackNotFoundError,
     MemoryFeedbackValidationError,
+    MemoryLifecycleConflictError,
+    MemoryLifecycleNotFoundError,
+    MemoryLifecycleValidationError,
     MemoryValidationError,
     create_memory,
     get_memory,
     list_memories,
+    reject_memory,
     submit_memory_feedback,
+    supersede_memory,
 )
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -155,3 +164,61 @@ def submit_memory_feedback_endpoint(
         raise persistence_unavailable() from None
 
     return MemoryFeedbackResponse.model_validate(result)
+
+
+@router.post("/{memory_id}/reject", response_model=MemoryRejectResponse)
+def reject_memory_endpoint(
+    memory_id: UUID,
+    payload: MemoryRejectCreate,
+    session: Session = Depends(get_db),
+) -> MemoryRejectResponse:
+    try:
+        result = reject_memory(session, memory_id, payload.reason)
+    except MemoryLifecycleNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memory not found",
+        ) from None
+    except MemoryLifecycleConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from None
+    except MemoryPersistenceError:
+        raise persistence_unavailable() from None
+
+    return MemoryRejectResponse.model_validate(result)
+
+
+@router.post("/{memory_id}/supersede", response_model=MemorySupersedeResponse)
+def supersede_memory_endpoint(
+    memory_id: UUID,
+    payload: MemorySupersedeCreate,
+    session: Session = Depends(get_db),
+) -> MemorySupersedeResponse:
+    try:
+        result = supersede_memory(
+            session,
+            memory_id,
+            payload.superseded_by,
+            payload.reason,
+        )
+    except MemoryLifecycleNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+    except MemoryLifecycleValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from None
+    except MemoryLifecycleConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from None
+    except MemoryPersistenceError:
+        raise persistence_unavailable() from None
+
+    return MemorySupersedeResponse.model_validate(result)

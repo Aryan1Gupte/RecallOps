@@ -55,6 +55,9 @@ export interface RecalledMemory {
   embedding_dimension: number
   success_count: number
   failure_count: number
+  superseded_by: string | null
+  superseded_at: string | null
+  supersession_reason: string | null
   cosine_distance: number
   similarity: number
   reliability: number
@@ -98,6 +101,33 @@ export interface MemoryFeedbackResponse {
   message: string
 }
 
+export interface MemoryRejectInput {
+  reason?: string
+}
+
+export interface MemoryRejectResponse {
+  memory_id: string
+  status: MemoryStatus
+  supersession_reason: string | null
+  updated_at: string
+  message: string
+}
+
+export interface MemorySupersedeInput {
+  superseded_by: string
+  reason?: string
+}
+
+export interface MemorySupersedeResponse {
+  memory_id: string
+  status: MemoryStatus
+  superseded_by: string | null
+  superseded_at: string | null
+  supersession_reason: string | null
+  updated_at: string
+  message: string
+}
+
 const API_BASE_PATH = '/api'
 
 class MemoryApiError extends Error {
@@ -115,7 +145,7 @@ function messageForStatus(status: number): string {
     return 'Please check the memory details and try again.'
   }
   if (status === 409) {
-    return 'Feedback is only accepted for active memories.'
+    return 'This memory action is only available for active memories.'
   }
   if (status === 502) {
     return 'The embedding service could not complete this memory request. Please try again.'
@@ -124,6 +154,15 @@ function messageForStatus(status: number): string {
     return 'RecallOps is temporarily unavailable. Please try again shortly.'
   }
   return 'RecallOps could not complete the memory request. Please try again.'
+}
+
+async function safeDetail(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.clone().json()) as { detail?: unknown }
+    return typeof body.detail === 'string' ? body.detail : null
+  } catch {
+    return null
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -138,7 +177,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new MemoryApiError(messageForStatus(response.status))
+    throw new MemoryApiError(
+      (await safeDetail(response)) ?? messageForStatus(response.status),
+    )
   }
 
   try {
@@ -205,6 +246,38 @@ export function submitMemoryFeedback(
 ): Promise<MemoryFeedbackResponse> {
   return request<MemoryFeedbackResponse>(
     `/memories/${encodeURIComponent(memoryId)}/feedback`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function rejectMemory(
+  memoryId: string,
+  input: MemoryRejectInput = {},
+): Promise<MemoryRejectResponse> {
+  return request<MemoryRejectResponse>(
+    `/memories/${encodeURIComponent(memoryId)}/reject`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function supersedeMemory(
+  memoryId: string,
+  input: MemorySupersedeInput,
+): Promise<MemorySupersedeResponse> {
+  return request<MemorySupersedeResponse>(
+    `/memories/${encodeURIComponent(memoryId)}/supersede`,
     {
       method: 'POST',
       headers: {
