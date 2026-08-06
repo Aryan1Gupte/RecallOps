@@ -64,6 +64,10 @@ def similar_memory(
     success_count: int = 2,
     failure_count: int = 1,
     created_at: datetime | None = None,
+    superseded_by: str | None = None,
+    replacement_memory_summary: str | None = None,
+    replacement_memory_type: str | None = None,
+    replacement_memory_status: str | None = None,
 ) -> SimilarMemoryRecord:
     return SimilarMemoryRecord(
         memory_id=UUID(memory_id),
@@ -78,12 +82,15 @@ def similar_memory(
         success_count=success_count,
         failure_count=failure_count,
         status=status,
-        superseded_by=None,
+        superseded_by=UUID(superseded_by) if superseded_by is not None else None,
         superseded_at=None,
         supersession_reason=None,
         cosine_distance=cosine_distance,
         created_at=created_at
         or datetime(2026, 1, 1, tzinfo=timezone.utc),
+        replacement_memory_summary=replacement_memory_summary,
+        replacement_memory_type=replacement_memory_type,
+        replacement_memory_status=replacement_memory_status,
     )
 
 
@@ -160,6 +167,9 @@ def test_recall_endpoint_success_with_fake_embedding_and_repository(
             "reliability 0.60 from 2 successes and 1 failure; "
             "same service match contributed to final ranking."
         ),
+        "replacement_memory_summary": None,
+        "replacement_memory_type": None,
+        "replacement_memory_status": None,
     }
     assert memory["final_score"] == pytest.approx(0.745)
     assert service.inputs == [
@@ -469,6 +479,10 @@ def test_recall_min_similarity_validates_bounds(client: TestClient) -> None:
         f"/api/incidents/{incident['id']}/memory-recall",
         params={"min_similarity": -0.01},
     )
+    below_safe_response = client.post(
+        f"/api/incidents/{incident['id']}/memory-recall",
+        params={"min_similarity": 0.59},
+    )
     high_response = client.post(
         f"/api/incidents/{incident['id']}/memory-recall",
         params={"min_similarity": 1.01},
@@ -479,6 +493,7 @@ def test_recall_min_similarity_validates_bounds(client: TestClient) -> None:
     )
 
     assert low_response.status_code == 422
+    assert below_safe_response.status_code == 422
     assert high_response.status_code == 422
     assert valid_response.status_code == 200
     assert valid_response.json()["min_similarity"] == 0.75
@@ -499,6 +514,64 @@ def test_recall_similarity_is_one_minus_cosine_distance(
 
     assert response.status_code == 200
     assert response.json()["memories"][0]["similarity"] == 0.8766
+
+
+def test_recall_clamps_near_identical_vector_search_noise(client: TestClient) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    override_memory_searcher(
+        lambda session, query_vector, limit: [
+            similar_memory(cosine_distance=-1.192e-7),
+        ]
+    )
+
+    response = client.post(f"/api/incidents/{incident['id']}/memory-recall")
+
+    assert response.status_code == 200
+    assert response.json()["memories"][0]["similarity"] == 1.0
+
+
+def test_recall_sanitizes_invalid_vector_search_distance(client: TestClient) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    override_memory_searcher(
+        lambda session, query_vector, limit: [
+            similar_memory(cosine_distance=-0.01),
+        ]
+    )
+
+    response = client.post(f"/api/incidents/{incident['id']}/memory-recall")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Memory recall is temporarily unavailable"}
+    assert "ValueError" not in response.text
+    assert "cosine distance" not in response.text
+
+
+def test_recall_response_includes_safe_replacement_metadata(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    override_memory_searcher(
+        lambda session, query_vector, limit: [
+            similar_memory(
+                superseded_by="00000000-0000-0000-0000-000000000199",
+                replacement_memory_summary="Use the newer checkout runbook",
+                replacement_memory_type="procedure",
+                replacement_memory_status="active",
+            ),
+        ]
+    )
+
+    response = client.post(f"/api/incidents/{incident['id']}/memory-recall")
+
+    assert response.status_code == 200
+    memory = response.json()["memories"][0]
+    assert memory["replacement_memory_summary"] == "Use the newer checkout runbook"
+    assert memory["replacement_memory_type"] == "procedure"
+    assert memory["replacement_memory_status"] == "active"
+    assert "vector" not in response.text
 
 
 def test_recall_uses_updated_feedback_counts_for_reliability(

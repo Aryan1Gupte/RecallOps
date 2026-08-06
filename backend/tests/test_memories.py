@@ -576,6 +576,7 @@ def test_reject_already_rejected_memory_returns_current_state(
     body = second_response.json()
     assert body["status"] == "rejected"
     assert body["supersession_reason"] == "Incorrect."
+    assert body["message"] == "Memory was already rejected."
 
 
 def test_reject_superseded_memory_returns_conflict(
@@ -669,6 +670,9 @@ def test_supersede_active_memory_with_active_replacement(
     assert body["superseded_at"] is not None
     assert body["supersession_reason"] == "Newer resolution replaced the old procedure."
     assert body["message"] == "Memory superseded."
+    assert body["replacement_memory_summary"] == "Newer checkout restart procedure"
+    assert body["replacement_memory_type"] == "resolution"
+    assert body["replacement_memory_status"] == "active"
     assert "vector" not in response.text
     assert '"embedding":' not in response.text
 
@@ -806,6 +810,7 @@ def test_already_superseded_memory_returns_current_state(
     assert body["status"] == "superseded"
     assert body["superseded_by"] == replacement["id"]
     assert body["supersession_reason"] == "First reason."
+    assert body["message"] == "Memory was already superseded."
     replacement_memory = db_session.get(Memory, UUID(replacement["id"]))
     other_memory = db_session.get(Memory, UUID(other_replacement["id"]))
     assert replacement_memory is not None
@@ -938,3 +943,40 @@ def test_memory_vector_search_returns_linked_incident_service(
     assert results[0].memory_incident_service == "checkout-api"
     assert results[0].created_at is not None
     assert "embedding" not in results[0].__dict__
+
+
+def test_memory_vector_search_uses_memory_id_tie_breaker(
+    db_session: Session,
+) -> None:
+    vector = (1.0,) + (0.0,) * 1023
+    larger_id_memory = Memory(
+        id=UUID("00000000-0000-0000-0000-000000000302"),
+        memory_type="resolution",
+        summary="Later UUID",
+        root_cause=None,
+        resolution="Restarted checkout workers",
+        embedding_text="Memory Type: resolution\nSummary: Later UUID",
+        embedding="[" + ",".join(str(value) for value in vector) + "]",
+        embedding_model_id="fake-memory-model",
+        embedding_dimension=1024,
+    )
+    smaller_id_memory = Memory(
+        id=UUID("00000000-0000-0000-0000-000000000301"),
+        memory_type="resolution",
+        summary="Earlier UUID",
+        root_cause=None,
+        resolution="Restarted checkout workers",
+        embedding_text="Memory Type: resolution\nSummary: Earlier UUID",
+        embedding="[" + ",".join(str(value) for value in vector) + "]",
+        embedding_model_id="fake-memory-model",
+        embedding_dimension=1024,
+    )
+    db_session.add_all([larger_id_memory, smaller_id_memory])
+    db_session.commit()
+
+    results = search_similar_active_memories(db_session, vector, 20)
+
+    assert [memory.memory_id for memory in results] == [
+        UUID("00000000-0000-0000-0000-000000000301"),
+        UUID("00000000-0000-0000-0000-000000000302"),
+    ]

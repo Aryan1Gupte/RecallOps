@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from recallops.ai.dependencies import get_embedding_service_factory
 from recallops.ai.embedding_protocols import (
@@ -68,6 +69,28 @@ def test_embedding_preview_endpoint_returns_metadata_without_vector(
     }
     assert "vector" not in body
     assert "embedding" not in body
+
+
+def test_embedding_preview_releases_read_transaction_before_provider_call(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    incident = create_embedding_test_incident(client)
+
+    class TransactionCheckingEmbeddingService:
+        in_transaction_during_call: bool | None = None
+
+        def embed(self, text: str) -> EmbeddingResult:
+            self.in_transaction_during_call = db_session.in_transaction()
+            return FakeEmbeddingService().embed(text)
+
+    service = TransactionCheckingEmbeddingService()
+    app.dependency_overrides[get_embedding_service_factory] = lambda: lambda: service
+
+    response = client.post(f"/api/incidents/{incident['id']}/embedding-preview")
+
+    assert response.status_code == 200
+    assert service.in_transaction_during_call is False
 
 
 def test_embedding_preview_returns_not_found_without_calling_provider(

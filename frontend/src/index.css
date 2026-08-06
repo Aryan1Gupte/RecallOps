@@ -642,6 +642,18 @@ dd {
   gap: 0.9rem;
 }
 
+.success-callout {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #bcd8c8;
+  border-radius: 0.65rem;
+  color: #28583f;
+  background: #eef8f1;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .embedding-metadata {
   grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 0.75fr));
   margin-top: 0;
@@ -753,11 +765,11 @@ dd {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 0.28rem 0.55rem;
+  padding: 0.36rem 0.65rem;
   border-radius: 999px;
   color: #234f39;
-  background: #daf0e3;
-  font-size: 0.68rem;
+  background: #d5f0df;
+  font-size: 0.9rem;
   font-weight: 850;
 }
 
@@ -774,9 +786,49 @@ dd {
 }
 
 .recall-explanation {
-  padding-top: 0.6rem;
-  border-top: 1px solid #e2e9e4;
   color: #506258;
+}
+
+.why-recalled-box {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #cdded4;
+  border-radius: 0.65rem;
+  background: #f3f8f5;
+}
+
+.why-recalled-box span {
+  color: #33533f;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.advanced-details {
+  min-width: 0;
+  border-top: 1px solid #e2e9e4;
+  padding-top: 0.55rem;
+}
+
+.advanced-details summary {
+  width: fit-content;
+  color: #52645a;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.advanced-details-content {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.65rem;
+}
+
+.advanced-metadata {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
 }
 
 .feedback-panel {
@@ -945,6 +997,19 @@ dd {
   background: #fff;
 }
 
+.memory-row-rejected,
+.memory-row-superseded {
+  background: #fbfaf8;
+}
+
+.memory-row-rejected {
+  border-color: #ead0ca;
+}
+
+.memory-row-superseded {
+  border-color: #e6d9bd;
+}
+
 .memory-row-heading {
   display: flex;
   align-items: center;
@@ -1052,6 +1117,7 @@ dd {
   .recall-metadata,
   .lifecycle-grid,
   .lifecycle-grid-wide,
+  .advanced-metadata,
   .memory-inspector-counts,
   .inspector-filters,
   .memory-form-grid,

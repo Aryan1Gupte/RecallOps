@@ -33,6 +33,7 @@ from recallops.services.memory_ranking import (
 DEFAULT_RECALL_TOP_K = 5
 MAX_RECALL_TOP_K = 10
 DEFAULT_MIN_SIMILARITY = 0.60
+MIN_ALLOWED_RECALL_SIMILARITY = DEFAULT_MIN_SIMILARITY
 DEFAULT_RECALL_CANDIDATE_LIMIT = 20
 
 
@@ -46,6 +47,10 @@ class MemoryRecallEmbeddingUnavailableError(RuntimeError):
 
 class MemoryRecallEmbeddingConfigurationUnavailableError(RuntimeError):
     """Raised when recall embedding settings are incomplete."""
+
+
+class MemoryRecallResultValidationError(RuntimeError):
+    """Raised when vector-search results cannot be ranked safely."""
 
 
 EmbeddingServiceFactory = Callable[[], EmbeddingService]
@@ -101,18 +106,24 @@ def recall_similar_memories_for_incident(
 
     bounded_top_k = min(max(1, top_k), MAX_RECALL_TOP_K)
     candidate_limit = max(DEFAULT_RECALL_CANDIDATE_LIMIT, bounded_top_k)
+    effective_min_similarity = max(min_similarity, MIN_ALLOWED_RECALL_SIMILARITY)
     candidates = searcher(session, embedding_result.vector, candidate_limit)
     active_ranking_candidates = [
         _ranking_candidate_from_record(candidate)
         for candidate in candidates
         if candidate.status == MemoryStatus.ACTIVE.value
     ]
-    ranked_candidates = rank_memory_candidates(
-        active_ranking_candidates,
-        query_service=query_context.service,
-        min_similarity=min_similarity,
-        top_k=bounded_top_k,
-    )
+    try:
+        ranked_candidates = rank_memory_candidates(
+            active_ranking_candidates,
+            query_service=query_context.service,
+            min_similarity=effective_min_similarity,
+            top_k=bounded_top_k,
+        )
+    except ValueError:
+        raise MemoryRecallResultValidationError(
+            "Memory recall vector-search results were invalid"
+        ) from None
     recalled_memories = [
         _response_from_ranked_candidate(ranked_candidate)
         for ranked_candidate in ranked_candidates
@@ -131,7 +142,7 @@ def recall_similar_memories_for_incident(
         incident_id=query_context.incident_id,
         query_embedding_model_id=embedding_result.model_id,
         query_embedding_dimension=embedding_result.dimension,
-        min_similarity=min_similarity,
+        min_similarity=effective_min_similarity,
         top_k=bounded_top_k,
         memories=recalled_memories,
         message=message,
@@ -162,6 +173,9 @@ def _ranking_candidate_from_record(
         supersession_reason=candidate.supersession_reason,
         cosine_distance=candidate.cosine_distance,
         created_at=candidate.created_at,
+        replacement_memory_summary=candidate.replacement_memory_summary,
+        replacement_memory_type=candidate.replacement_memory_type,
+        replacement_memory_status=candidate.replacement_memory_status,
     )
 
 
@@ -192,6 +206,9 @@ def _response_from_ranked_candidate(
         final_score=ranked_candidate.final_score,
         rank=ranked_candidate.rank,
         why_recalled=ranked_candidate.why_recalled,
+        replacement_memory_summary=candidate.replacement_memory_summary,
+        replacement_memory_type=candidate.replacement_memory_type,
+        replacement_memory_status=candidate.replacement_memory_status,
     )
 
 

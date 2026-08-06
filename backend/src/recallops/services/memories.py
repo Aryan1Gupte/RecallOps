@@ -129,6 +129,9 @@ class MemorySupersedeResult:
     supersession_reason: str | None
     updated_at: datetime
     message: str
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: str | None = None
+    replacement_memory_status: str | None = None
 
 
 EmbeddingServiceFactory = Callable[[], EmbeddingService]
@@ -279,22 +282,22 @@ def reject_memory(
     normalized_reason = _normalize_reason(reason, DEFAULT_REJECTION_REASON)
 
     try:
-        memory = reject_memory_record(session, memory_id, normalized_reason)
+        mutation = reject_memory_record(session, memory_id, normalized_reason)
     except MemoryRecordNotFoundError:
         raise MemoryLifecycleNotFoundError("Memory not found") from None
     except RepositoryMemoryLifecycleConflictError as exc:
         raise MemoryLifecycleConflictError(str(exc)) from None
 
+    memory = mutation.memory
     return MemoryRejectResult(
         memory_id=memory.id,
         status=memory.status,
         supersession_reason=memory.supersession_reason,
         updated_at=memory.updated_at,
         message=(
-            "Memory was already rejected."
-            if memory.status == "rejected"
-            and memory.supersession_reason != normalized_reason
-            else "Memory rejected."
+            "Memory rejected."
+            if mutation.changed
+            else "Memory was already rejected."
         ),
     )
 
@@ -313,7 +316,7 @@ def supersede_memory(
     normalized_reason = _normalize_reason(reason, DEFAULT_SUPERSESSION_REASON)
 
     try:
-        memory = supersede_memory_record(
+        mutation = supersede_memory_record(
             session,
             memory_id,
             superseded_by,
@@ -324,6 +327,7 @@ def supersede_memory(
     except RepositoryMemoryLifecycleConflictError as exc:
         raise MemoryLifecycleConflictError(str(exc)) from None
 
+    memory = mutation.memory
     return MemorySupersedeResult(
         memory_id=memory.id,
         status=memory.status,
@@ -332,11 +336,13 @@ def supersede_memory(
         supersession_reason=memory.supersession_reason,
         updated_at=memory.updated_at,
         message=(
-            "Memory was already superseded."
-            if memory.status == "superseded"
-            and memory.superseded_by != superseded_by
-            else "Memory superseded."
+            "Memory superseded."
+            if mutation.changed
+            else "Memory was already superseded."
         ),
+        replacement_memory_summary=memory.replacement_memory_summary,
+        replacement_memory_type=memory.replacement_memory_type,
+        replacement_memory_status=memory.replacement_memory_status,
     )
 
 

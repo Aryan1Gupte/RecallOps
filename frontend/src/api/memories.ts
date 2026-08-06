@@ -135,6 +135,9 @@ export interface MemorySupersedeResponse {
   supersession_reason: string | null
   updated_at: string
   message: string
+  replacement_memory_summary: string | null
+  replacement_memory_type: MemoryType | null
+  replacement_memory_status: MemoryStatus | null
 }
 
 const API_BASE_PATH = '/api'

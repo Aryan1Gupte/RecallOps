@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from recallops.ai.bedrock import AnalysisServiceError
 from recallops.ai.dependencies import get_incident_analysis_service_factory
@@ -54,6 +55,30 @@ def test_analysis_endpoint_success(client: TestClient) -> None:
         "cautions": ["This is an initial hypothesis, not a confirmed root cause."],
         "model_id": "fake-analysis-model",
     }
+
+
+def test_analysis_endpoint_releases_read_transaction_before_provider_call(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    incident = create_test_incident(client)
+
+    class TransactionCheckingAnalysisService:
+        in_transaction_during_call: bool | None = None
+
+        def analyze(self, incident: IncidentAnalysisInput) -> IncidentAnalysisResponse:
+            self.in_transaction_during_call = db_session.in_transaction()
+            return FakeAnalysisService().analyze(incident)
+
+    service = TransactionCheckingAnalysisService()
+    app.dependency_overrides[get_incident_analysis_service_factory] = (
+        lambda: lambda: service
+    )
+
+    response = client.post(f"/api/incidents/{incident['id']}/analysis")
+
+    assert response.status_code == 200
+    assert service.in_transaction_during_call is False
 
 
 def test_analysis_endpoint_returns_not_found_without_calling_ai(

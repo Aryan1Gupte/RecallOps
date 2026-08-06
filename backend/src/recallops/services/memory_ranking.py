@@ -8,6 +8,7 @@ from uuid import UUID
 SEMANTIC_WEIGHT = 0.70
 RELIABILITY_WEIGHT = 0.20
 SAME_SERVICE_WEIGHT = 0.10
+COSINE_DISTANCE_NOISE_TOLERANCE = 1e-6
 RANKING_FORMULA = (
     "final_score = 0.70 * semantic_similarity "
     "+ 0.20 * reliability + 0.10 * same_service_score"
@@ -33,6 +34,9 @@ class MemoryRankingCandidate:
     supersession_reason: str | None
     cosine_distance: float
     created_at: datetime | None
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: str | None = None
+    replacement_memory_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,20 @@ def calculate_final_score(
     )
 
 
+def calculate_semantic_similarity(cosine_distance: float) -> float:
+    """Convert cosine distance to bounded semantic similarity."""
+
+    if not math.isfinite(cosine_distance):
+        raise ValueError("cosine distance must be finite")
+    if cosine_distance < -COSINE_DISTANCE_NOISE_TOLERANCE:
+        raise ValueError("cosine distance must not be negative")
+    if cosine_distance > 2.0 + COSINE_DISTANCE_NOISE_TOLERANCE:
+        raise ValueError("cosine distance must be a valid cosine distance")
+
+    similarity = 1 - cosine_distance
+    return min(1.0, max(0.0, similarity))
+
+
 def rank_memory_candidates(
     candidates: list[MemoryRankingCandidate],
     *,
@@ -98,7 +116,7 @@ def rank_memory_candidates(
 
     ranked_candidates: list[RankedMemoryCandidate] = []
     for candidate in candidates:
-        similarity = 1 - candidate.cosine_distance
+        similarity = calculate_semantic_similarity(candidate.cosine_distance)
         if similarity < min_similarity:
             continue
 

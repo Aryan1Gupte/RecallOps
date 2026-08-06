@@ -7,6 +7,7 @@ from recallops.services.memory_ranking import (
     calculate_final_score,
     calculate_reliability,
     calculate_same_service_score,
+    calculate_semantic_similarity,
     rank_memory_candidates,
     MemoryRankingCandidate,
 )
@@ -75,6 +76,37 @@ def test_same_service_score_missing_linked_incident_service() -> None:
 
 def test_final_score_uses_configured_weights() -> None:
     assert calculate_final_score(0.8, 0.75, 1.0) == pytest.approx(0.81)
+
+
+def test_semantic_similarity_clamps_float32_negative_cosine_distance() -> None:
+    assert calculate_semantic_similarity(-1.192e-7) == 1.0
+
+
+def test_semantic_similarity_clamps_tiny_negative_similarity() -> None:
+    assert calculate_semantic_similarity(1.000000000001) == 0.0
+
+
+def test_near_identical_vector_search_result_clamps_similarity_to_one() -> None:
+    ranked = rank_memory_candidates(
+        [
+            ranking_candidate(
+                memory_id="00000000-0000-0000-0000-000000000221",
+                cosine_distance=-1.192e-7,
+            )
+        ],
+        query_service="checkout-api",
+        min_similarity=0.60,
+        top_k=5,
+    )
+
+    assert ranked[0].similarity == 1.0
+
+
+def test_semantic_similarity_rejects_genuinely_invalid_distances() -> None:
+    with pytest.raises(ValueError, match="negative"):
+        calculate_semantic_similarity(-0.01)
+    with pytest.raises(ValueError, match="valid cosine distance"):
+        calculate_semantic_similarity(3.0)
 
 
 def test_semantic_gate_happens_before_ranking() -> None:

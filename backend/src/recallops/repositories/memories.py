@@ -99,6 +99,17 @@ class SimilarMemoryRecord:
     supersession_reason: str | None
     cosine_distance: float
     created_at: datetime
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: str | None = None
+    replacement_memory_status: str | None = None
+
+
+@dataclass(frozen=True)
+class MemoryLifecycleMutation:
+    """Repository result that distinguishes new mutations from idempotent reads."""
+
+    memory: MemoryRecord
+    changed: bool
 
 
 def create_memory_record(session: Session, payload: NewMemoryRecord) -> MemoryRecord:
@@ -195,7 +206,7 @@ def reject_memory_record(
     session: Session,
     memory_id: UUID,
     reason: str,
-) -> MemoryRecord:
+) -> MemoryLifecycleMutation:
     """Mark one active memory rejected while preserving the row."""
 
     statement = (
@@ -213,7 +224,10 @@ def reject_memory_record(
         row = session.execute(statement).mappings().one_or_none()
         if row is not None:
             session.commit()
-            return _memory_record_from_mapping(row)
+            return MemoryLifecycleMutation(
+                memory=_memory_record_from_mapping(row),
+                changed=True,
+            )
 
         session.rollback()
         existing = _get_memory_record_without_boundary(session, memory_id)
@@ -224,7 +238,7 @@ def reject_memory_record(
     if existing is None:
         raise MemoryRecordNotFoundError("Memory not found")
     if existing.status == "rejected":
-        return existing
+        return MemoryLifecycleMutation(memory=existing, changed=False)
     if existing.status == "superseded":
         raise MemoryLifecycleConflictError(
             "Superseded memories cannot be rejected in this workflow"
@@ -237,7 +251,7 @@ def supersede_memory_record(
     memory_id: UUID,
     superseded_by: UUID,
     reason: str,
-) -> MemoryRecord:
+) -> MemoryLifecycleMutation:
     """Mark one active memory superseded by another active memory."""
 
     try:
@@ -251,7 +265,7 @@ def supersede_memory_record(
         raise MemoryRecordNotFoundError("Memory not found")
     if original.status == "superseded":
         session.rollback()
-        return original
+        return MemoryLifecycleMutation(memory=original, changed=False)
     if original.status == "rejected":
         session.rollback()
         raise MemoryLifecycleConflictError(
@@ -291,7 +305,10 @@ def supersede_memory_record(
         row = session.execute(statement).mappings().one_or_none()
         if row is not None:
             session.commit()
-            return _memory_record_from_mapping(row)
+            refreshed = _get_memory_record_without_boundary(session, memory_id)
+            if refreshed is None:
+                raise MemoryRecordNotFoundError("Memory not found")
+            return MemoryLifecycleMutation(memory=refreshed, changed=True)
 
         session.rollback()
         existing = _get_memory_record_without_boundary(session, memory_id)
@@ -302,7 +319,7 @@ def supersede_memory_record(
     if existing is None:
         raise MemoryRecordNotFoundError("Memory not found")
     if existing.status == "superseded":
-        return existing
+        return MemoryLifecycleMutation(memory=existing, changed=False)
     if existing.status == "rejected":
         raise MemoryLifecycleConflictError(
             "Rejected memories cannot be superseded in this workflow"
@@ -453,12 +470,17 @@ def _search_similar_active_memories_for_cockroach(
             memories.superseded_at,
             memories.supersession_reason,
             memories.embedding <=> CAST(:query_vector AS VECTOR(1024)) AS cosine_distance,
-            memories.created_at
+            memories.created_at,
+            replacement_memories.summary AS replacement_memory_summary,
+            replacement_memories.memory_type AS replacement_memory_type,
+            replacement_memories.status AS replacement_memory_status
         FROM memories
         LEFT JOIN incidents AS linked_incidents
             ON memories.incident_id = linked_incidents.id
+        LEFT JOIN memories AS replacement_memories
+            ON memories.superseded_by = replacement_memories.id
         WHERE memories.status = 'active'
-        ORDER BY memories.embedding <=> CAST(:query_vector AS VECTOR(1024))
+        ORDER BY memories.embedding <=> CAST(:query_vector AS VECTOR(1024)), memories.id
         LIMIT :limit
         """
     )
@@ -481,12 +503,17 @@ def _search_similar_active_memories_for_sqlite(
     query_vector: tuple[float, ...],
     limit: int,
 ) -> list[SimilarMemoryRecord]:
+    replacement_memory = aliased(Memory)
     statement = (
         select(
             Memory,
             Incident.service.label("memory_incident_service"),
+            replacement_memory.summary.label("replacement_memory_summary"),
+            replacement_memory.memory_type.label("replacement_memory_type"),
+            replacement_memory.status.label("replacement_memory_status"),
         )
         .outerjoin(Incident, Memory.incident_id == Incident.id)
+        .outerjoin(replacement_memory, Memory.superseded_by == replacement_memory.id)
         .where(Memory.status == "active")
     )
     rows = session.execute(statement).all()
@@ -495,8 +522,17 @@ def _search_similar_active_memories_for_sqlite(
             memory,
             _cosine_distance(memory.embedding, query_vector),
             memory_incident_service,
+            replacement_memory_summary,
+            replacement_memory_type,
+            replacement_memory_status,
         )
-        for memory, memory_incident_service in rows
+        for (
+            memory,
+            memory_incident_service,
+            replacement_memory_summary,
+            replacement_memory_type,
+            replacement_memory_status,
+        ) in rows
     ]
     return sorted(
         scored_memories,
@@ -626,6 +662,9 @@ def _similar_memory_record_from_mapping(row: RowMapping) -> SimilarMemoryRecord:
         supersession_reason=row["supersession_reason"],
         cosine_distance=float(row["cosine_distance"]),
         created_at=row["created_at"],
+        replacement_memory_summary=row.get("replacement_memory_summary"),
+        replacement_memory_type=row.get("replacement_memory_type"),
+        replacement_memory_status=row.get("replacement_memory_status"),
     )
 
 
@@ -633,6 +672,9 @@ def _similar_memory_record_from_model(
     memory: Memory,
     cosine_distance: float,
     memory_incident_service: str | None,
+    replacement_memory_summary: str | None = None,
+    replacement_memory_type: str | None = None,
+    replacement_memory_status: str | None = None,
 ) -> SimilarMemoryRecord:
     return SimilarMemoryRecord(
         memory_id=memory.id,
@@ -652,6 +694,9 @@ def _similar_memory_record_from_model(
         supersession_reason=memory.supersession_reason,
         cosine_distance=cosine_distance,
         created_at=memory.created_at,
+        replacement_memory_summary=replacement_memory_summary,
+        replacement_memory_type=replacement_memory_type,
+        replacement_memory_status=replacement_memory_status,
     )
 
 

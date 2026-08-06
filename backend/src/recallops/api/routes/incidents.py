@@ -41,9 +41,11 @@ from recallops.services.memory_recall import (
     DEFAULT_MIN_SIMILARITY,
     DEFAULT_RECALL_TOP_K,
     MAX_RECALL_TOP_K,
+    MIN_ALLOWED_RECALL_SIMILARITY,
     IncidentForRecallNotFoundError,
     MemoryRecallEmbeddingConfigurationUnavailableError,
     MemoryRecallEmbeddingUnavailableError,
+    MemoryRecallResultValidationError,
     MemoryRecallSearcher,
     recall_similar_memories_for_incident,
 )
@@ -130,6 +132,9 @@ def analyze_incident_endpoint(
         )
 
     analysis_input = build_incident_analysis_input(incident)
+    # The incident fields are copied, so the DB transaction can end before the
+    # potentially slow Bedrock analysis request.
+    session.rollback()
 
     try:
         service = service_factory()
@@ -170,9 +175,11 @@ def preview_incident_embedding_endpoint(
             detail="Incident not found",
         )
 
-    embedding_text = build_incident_embedding_text(
-        build_incident_analysis_input(incident)
-    )
+    incident_input = build_incident_analysis_input(incident)
+    # The incident fields are copied, so the DB transaction can end before the
+    # potentially slow Titan embedding request.
+    session.rollback()
+    embedding_text = build_incident_embedding_text(incident_input)
 
     try:
         result = service_factory().embed(embedding_text)
@@ -206,7 +213,7 @@ def recall_incident_memories_endpoint(
     ),
     min_similarity: float = Query(
         default=DEFAULT_MIN_SIMILARITY,
-        ge=0.0,
+        ge=MIN_ALLOWED_RECALL_SIMILARITY,
         le=1.0,
     ),
     session: Session = Depends(get_db),
@@ -237,6 +244,11 @@ def recall_incident_memories_endpoint(
             detail="Memory recall embeddings are not configured",
         ) from None
     except MemoryRecallEmbeddingUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Memory recall is temporarily unavailable",
+        ) from None
+    except MemoryRecallResultValidationError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Memory recall is temporarily unavailable",

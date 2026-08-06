@@ -191,6 +191,9 @@ class MemorySupersedeResponse(BaseModel):
     supersession_reason: str | None
     updated_at: datetime
     message: str
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: MemoryType | None = None
+    replacement_memory_status: MemoryStatus | None = None
 
 
 class RecalledMemoryResponse(BaseModel):
@@ -220,6 +223,9 @@ class RecalledMemoryResponse(BaseModel):
     final_score: float
     rank: int
     why_recalled: str
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: MemoryType | None = None
+    replacement_memory_status: MemoryStatus | None = None
 
 
 class MemoryRecallResponse(BaseModel):

@@ -61,6 +61,29 @@ cd frontend
 npm run build
 ```
 
+For the pre-deployment path, RecallOps expects same-origin serving: when a
+built frontend directory exists, the FastAPI app serves it while keeping API
+routes under `/api`. By default the backend looks for the repository-local
+`frontend/dist`; deployment can set `RECALL_OPS_FRONTEND_DIST` to an explicit
+build directory. Local Vite development still uses the Vite proxy, so the
+frontend API clients can keep the relative `/api` base path without adding
+deployment CORS requirements yet.
+
+## Demo flow
+
+For a short judge demo, use the incident dashboard first, then recall and memory management:
+
+1. Select or create a realistic incident such as checkout latency from stale cache.
+2. Run AI analysis to show the on-demand investigation aid.
+3. Generate the semantic fingerprint preview to show that vectors stay private.
+4. Save one clear memory from the incident.
+5. Click Recall similar memories to show ranked recalled memories.
+6. Mark a recalled memory successful and point out that reliability improves future ranking.
+7. Open Memory Inspector to show active, rejected, and superseded memories.
+8. Reject a vague disposable memory or supersede an older memory with a better active replacement.
+
+The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include deployment, Docker, MCP, authentication, background jobs, streaming, or agent loops.
+
 ## Environment configuration
 
 Create a local environment file from the safe template:
@@ -77,7 +100,7 @@ Set `BEDROCK_EMBEDDING_MODEL_ID` to the Titan Text Embeddings V2 model used for 
 
 AWS credentials must be configured outside this repository through the normal AWS SDK credential provider chain, such as a local shared AWS profile or an assigned runtime role. Never place or commit AWS keys in `.env`, `.env.example`, source files, tests, or documentation.
 
-`APP_NAME`, `APP_ENV`, and `API_PREFIX` have development defaults. `DATABASE_URL` is required only when an endpoint, health check, or migration starts database functionality. Missing embedding configuration does not prevent process health, database health, incident CRUD, or incident analysis from starting.
+`APP_NAME`, `APP_ENV`, `API_PREFIX`, and `RECALL_OPS_FRONTEND_DIST` have development-friendly defaults. `DATABASE_URL` is required only when an endpoint, health check, or migration starts database functionality. Missing embedding configuration does not prevent process health, database health, incident CRUD, or incident analysis from starting.
 
 ## Database migrations
 
@@ -113,6 +136,25 @@ FROM memories
 ORDER BY created_at DESC
 LIMIT 5;
 ```
+
+To manually check whether recall's vector search plan can use the CockroachDB vector index, run an `EXPLAIN` against the real cluster without printing the connection URL:
+
+```bash
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  cockroach sql --url "$DATABASE_URL" --execute "
+    EXPLAIN
+    WITH query_vector AS (
+      SELECT CAST('[' || repeat('0.001,', 1023) || '0.001]' AS VECTOR(1024)) AS v
+    )
+    SELECT memories.id
+    FROM memories, query_vector
+    WHERE memories.status = 'active'
+    ORDER BY memories.embedding <=> query_vector.v, memories.id
+    LIMIT 5;
+  "
+```
+
+The recall repository orders by the actual vector distance expression first and `memories.id` second for deterministic ties. The manual plan should be reviewed for vector-index usage before production deployment. If the plan does not use the vector index, keep the schema unchanged and investigate CockroachDB planner/index requirements separately.
 
 Do not paste or commit `DATABASE_URL`, `.env`, AWS credentials, or full provider responses while running these checks.
 
@@ -174,7 +216,7 @@ curl --request POST \
   'http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000/memory-recall?top_k=5&min_similarity=0.60'
 ```
 
-The recall endpoint builds the same deterministic incident embedding text used by the preview flow, generates a Titan query embedding, and searches active memories with CockroachDB `VECTOR` cosine distance using the `<=>` operator. `min_similarity` is the semantic gate: RecallOps converts cosine distance to `semantic_similarity = 1 - cosine_distance` and only ranks memories whose similarity is at or above the threshold. The default is `0.60`, and values must be between `0` and `1`. Metadata cannot rescue a memory that fails the semantic gate. `top_k` controls the maximum number of returned memories after ranking; the default is `5`, and the maximum is `10`.
+The recall endpoint builds the same deterministic incident embedding text used by the preview flow, generates a Titan query embedding, and searches active memories with CockroachDB `VECTOR` cosine distance using the `<=>` operator. `min_similarity` is the semantic gate: RecallOps converts cosine distance to `semantic_similarity = 1 - cosine_distance`, clamps floating-point noise into the public `0.0` to `1.0` range, and only ranks memories whose similarity is at or above the threshold. The server-owned default and minimum allowed value is `0.60`; lower client values are rejected. Metadata cannot rescue a memory that fails the semantic gate. `top_k` controls the maximum number of returned memories after ranking; the default is `5`, and the maximum is `10`.
 
 Gated candidates are ordered by deterministic ranking:
 
@@ -277,6 +319,8 @@ curl --request POST \
 
 If both memories exist and the replacement is active, RecallOps sets the original memory to `superseded`, records `superseded_by`, `superseded_at`, `supersession_reason`, and `updated_at`, and does not modify the replacement memory. A memory cannot supersede itself. Rejected memories cannot be superseded through this workflow. If the original memory is already superseded, the endpoint returns the current superseded state safely rather than rewriting its audit fields.
 
+Repeated lifecycle submissions are idempotent replays. Rejecting an already rejected memory returns the current rejected state with `Memory was already rejected.` Superseding an already superseded memory returns the current superseded state with `Memory was already superseded.` Different reasons on replay do not rewrite the original audit reason.
+
 Lifecycle actions are deterministic database mutations and do not call Bedrock, Titan, Nova, vector search, or any other model provider. They do not delete rows. Inactive memories remain available through memory list/get APIs but are excluded from future recall, and feedback remains accepted only for active memories.
 
 ## Memory Inspector
@@ -287,14 +331,16 @@ The frontend Memory Inspector appears below the incident dashboard. It loads sav
 - status filter: all, active, rejected, superseded
 - memory type filter: all, resolution, failed action, procedure, observation
 - refresh control
-- cards showing summary, optional root cause/resolution, linked incident metadata, embedding model and dimension, success/failure counts, derived reliability, lifecycle reason, replacement memory metadata, and created/updated timestamps
+- cards showing summary, optional root cause/resolution, linked incident metadata, success/failure counts, derived reliability, lifecycle reason, and human-readable replacement memory metadata
 
 For active memories, the inspector exposes Mark successful, Mark failed, Reject memory, and Supersede memory actions. Feedback updates reliability through the same counter endpoint used by recall cards. Reject and supersede actions use the existing lifecycle endpoints and update the visible card after success.
 
 Supersession uses a dropdown of active memories rather than a raw replacement UUID input. The current memory is excluded from its own replacement options. Dropdown labels show the memory type, a shortened summary, active status, and a short ID hint so users can choose a replacement without copying UUIDs from CockroachDB. Recall cards use the same active-memory dropdown.
 
-Rejected and superseded memories remain visible in the inspector, but feedback controls are disabled and the UI explains that inactive memories are preserved and excluded from future recall. Raw memory vectors and query vectors are never displayed. The Memory Inspector is a visibility and management surface only; it is not an agent loop, MCP integration, automatic extraction system, deletion workflow, or deployment feature.
+Rejected and superseded memories remain visible in the inspector, but feedback controls are disabled and the UI explains that inactive memories are preserved and excluded from future recall. Technical fields such as model IDs, dimensions, cosine distance, ranking formula, UUIDs, and timestamps are available under Advanced details instead of being primary card content. Raw memory vectors and query vectors are never displayed. The Memory Inspector is a visibility and management surface only; it is not an agent loop, MCP integration, automatic extraction system, deletion workflow, or deployment feature.
 
 The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and lifecycle workflows have stable storage. This milestone still does not implement memory deletion, automatic stale-memory detection, audit/event tables, or agent retrieval behavior.
+
+Known pre-deployment deferrals are intentional for the single-user demo: supersede concurrency/TOCTOU hardening, frontend API-client consolidation, and full automated CockroachDB vector-search integration coverage. Use the manual `EXPLAIN` and smoke checklist above before deployment work, and keep automated tests isolated from CockroachDB and Bedrock by default.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.

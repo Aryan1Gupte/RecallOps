@@ -16,6 +16,7 @@ class Settings:
     aws_region: str | None
     bedrock_chat_model_id: str | None
     bedrock_embedding_model_id: str | None
+    frontend_dist: str | None
 
     def require_database_url(self) -> str:
         """Return the database URL only when database functionality needs it."""
@@ -107,4 +108,5 @@ def get_settings() -> Settings:
         aws_region=os.getenv("AWS_REGION"),
         bedrock_chat_model_id=os.getenv("BEDROCK_CHAT_MODEL_ID"),
         bedrock_embedding_model_id=os.getenv("BEDROCK_EMBEDDING_MODEL_ID"),
+        frontend_dist=os.getenv("RECALL_OPS_FRONTEND_DIST"),
     )
