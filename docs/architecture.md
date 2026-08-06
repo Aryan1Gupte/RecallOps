@@ -26,6 +26,8 @@ The lifecycle control choices are recorded in [ADR 0010: Memory lifecycle reject
 
 The inspector and lifecycle UX choices are recorded in [ADR 0011: Memory Inspector and lifecycle selection UX](decisions/0011-memory-inspector-lifecycle-ux.md).
 
+The repeatable demo data choices are recorded in [ADR 0012: Repeatable demo data seeding](decisions/0012-repeatable-demo-data-seeding.md).
+
 ## Provisional technology decisions
 
 - CockroachDB Cloud stores structured incident data and vector-backed memory records.

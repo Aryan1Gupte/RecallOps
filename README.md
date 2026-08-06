@@ -84,6 +84,35 @@ For a short judge demo, use the incident dashboard first, then recall and memory
 
 The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include deployment, Docker, MCP, authentication, background jobs, streaming, or agent loops.
 
+## Demo seed data
+
+Milestone 14 includes a repeatable seed script for judge demos:
+
+```bash
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/python backend/scripts/seed_demo_data.py --dry-run
+
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/python backend/scripts/seed_demo_data.py --apply
+```
+
+The default behavior is dry-run, so running the script without `--apply` does not mutate the database and does not call Titan. `--apply` uses the configured CockroachDB database and real Titan embeddings for memory creation. The script is idempotent: it checks stable demo incident titles and memory summaries, skips existing records, applies lifecycle state if needed, and sets exact demo feedback counts.
+
+The seed script creates these demo incidents, all prefixed with `Demo —`:
+
+- `Demo — Checkout cache latency`
+- `Demo — Checkout cache latency recurrence`
+- `Demo — Nightly batch duplicate transaction IDs`
+- `Demo — Payment retry storm`
+- `Demo — Failed restart action`
+- `Demo — Policy document upload timeout`
+
+It creates active, rejected, and superseded memories that demonstrate semantic recall, deterministic ranking, reliability, failed-action learning, and Memory Inspector lifecycle state. The vague checkout observation is rejected, the older checkout procedure is superseded by a better procedure, and selected active memories receive demo feedback counts.
+
+The script does not wipe incidents or memories, does not delete non-demo data, and does not include a reset flag. Cleanup should be manual through the UI or targeted SQL reviewed by the operator. It never prints raw embedding vectors, `DATABASE_URL`, AWS credentials, or provider payloads.
+
+Recommended seeded flow: select `Demo — Checkout cache latency recurrence`, click Recall similar memories, confirm the active checkout resolution and replacement procedure appear, then open Memory Inspector to show the rejected vague memory and superseded old procedure preserved but excluded from recall.
+
 ## Environment configuration
 
 Create a local environment file from the safe template:

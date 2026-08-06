@@ -4,7 +4,7 @@ This script is for a short local demo before the first AWS deployment. It assume
 
 ## Three-minute outline
 
-1. Open RecallOps and select a checkout incident.
+1. Open RecallOps and select `Demo — Checkout cache latency recurrence`.
    Say: "RecallOps starts with an incident record, then helps us analyze it and learn from it."
 
 2. Click Analyze with AI.
@@ -13,11 +13,11 @@ This script is for a short local demo before the first AWS deployment. It assume
 3. Click Generate embedding preview.
    Say: "This creates a semantic fingerprint, but the raw vector stays private." Leave Advanced details closed unless asked.
 
-4. Save a memory from the incident.
-   Use a clear summary, root cause, and resolution. Say: "Now RecallOps has durable operational memory, separate from the incident."
+4. Show the saved-memory panel.
+   The seeded data already includes durable memories linked to demo incidents. Say: "RecallOps stores operational memory separately from incidents, with private vectors in CockroachDB."
 
 5. Click Recall similar memories.
-   Show rank, final score, similarity, reliability, same-service indicator, and Why recalled. Say: "Similarity finds related memories; deterministic ranking orders them."
+   Show the active checkout resolution and replacement procedure. Point at rank, final score, similarity, reliability, same-service indicator, and Why recalled. Say: "Similarity finds related memories; deterministic ranking orders them."
 
 6. Click Mark successful on a useful recalled memory.
    Show the success count and reliability update. Say: "Reliability improves as operators mark memories successful."
@@ -25,80 +25,59 @@ This script is for a short local demo before the first AWS deployment. It assume
 7. Scroll to Memory Inspector.
    Show total, active, rejected, and superseded counts. Filter by active, rejected, and superseded.
 
-8. Supersede an older disposable memory.
-   Use the active-memory dropdown, not a UUID. Say: "Supersede means a better memory replaces an older one. The older row is preserved but excluded from future recall."
+8. Show the seeded lifecycle examples.
+   Filter Memory Inspector by rejected to show the vague checkout memory. Filter by superseded to show the older checkout procedure replaced by the better active procedure. Say: "Supersede means a better memory replaces an older one. The older row is preserved but excluded from future recall."
+
+## Seed the demo data
+
+Run a dry-run first:
+
+```bash
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/python backend/scripts/seed_demo_data.py --dry-run
+```
+
+Apply only when the local CockroachDB and Bedrock/Titan configuration is available:
+
+```bash
+backend/.venv/bin/python -m dotenv -f .env run -- \
+  backend/.venv/bin/python backend/scripts/seed_demo_data.py --apply
+```
+
+Dry-run does not mutate data and does not call Titan. Apply creates missing demo records, skips existing records, rejects the vague checkout memory, supersedes the older checkout procedure, and sets exact demo feedback counts. The script does not wipe non-demo data and does not print database URLs, AWS credentials, provider payloads, or raw vectors.
 
 ## Suggested demo records
 
-Create these manually through the UI. Prefix titles with `Demo -` so they are easy to find later.
+The seed script creates these exact incidents:
 
-### Incident 1
+- `Demo — Checkout cache latency`
+- `Demo — Checkout cache latency recurrence`
+- `Demo — Nightly batch duplicate transaction IDs`
+- `Demo — Payment retry storm`
+- `Demo — Failed restart action`
+- `Demo — Policy document upload timeout` in the `uat` environment
 
-Title: `Demo - checkout-api stale cache latency`
+It also creates these memories:
 
-Description: `Checkout requests are timing out after a deploy. Error rates rise when workers reuse stale local cache entries.`
+- Active checkout resolution: `Checkout cache latency is resolved by restarting checkout workers and clearing stale cache state.`
+- Superseded checkout procedure: `Restart checkout workers when cache latency appears.`
+- Replacement checkout procedure: `Restart checkout workers and clear stale cache before retrying checkout traffic.`
+- Rejected vague checkout observation: `Checkout was slow and something needed fixing.`
+- Duplicate transaction resolution: `Nightly batch failures from duplicate transaction IDs are fixed by deduplicating the source file before replay.`
+- Failed action memory: `Restarting the payment worker alone does not fix retry storms caused by downstream provider timeouts.`
+- Payment retry procedure: `Payment retry storms should be controlled by pausing retries and draining queues gradually.`
+- Document-service observation: `Document upload timeouts can indicate connection pool exhaustion in the document service.`
 
-Service: `checkout-api`
+## What to show
 
-Environment: `production`
-
-Useful memory:
-
-- Type: `resolution`
-- Summary: `Restarting checkout workers cleared stale local cache and restored checkout latency.`
-- Root cause: `Workers kept stale cache entries after deploy.`
-- Resolution: `Restart checkout workers and verify cache warmup before declaring recovery.`
-
-### Incident 2
-
-Title: `Demo - nightly batch duplicate transaction identifiers`
-
-Description: `The nightly settlement job produced duplicate transaction identifiers after a retry storm.`
-
-Service: `settlement-batch`
-
-Environment: `production`
-
-Useful memory:
-
-- Type: `procedure`
-- Summary: `Pause settlement retries before rerunning duplicate transaction cleanup.`
-- Root cause: `Retry workers reused transaction identifier seeds.`
-- Resolution: `Pause retries, rotate the batch seed, deduplicate pending rows, then resume the job.`
-
-### Failed action memory
-
-- Type: `failed_action`
-- Summary: `Restarting checkout-api alone did not fix stale cache until worker cache was cleared.`
-- Root cause: `Restart touched API pods but not the worker cache process.`
-- Resolution: `Clear worker cache and restart the worker pool.`
-
-### Superseded memory pair
-
-Older memory:
-
-- Type: `procedure`
-- Summary: `Restart checkout-api pods when checkout latency rises.`
-- Root cause: `Not provided`
-- Resolution: `Restart checkout-api pods.`
-
-Replacement memory:
-
-- Type: `procedure`
-- Summary: `Clear checkout worker cache before restarting checkout workers.`
-- Root cause: `Workers can retain stale local cache after deploy.`
-- Resolution: `Clear worker cache, restart workers, then confirm cache warmup.`
-
-Supersede the older memory with the replacement using the dropdown.
-
-### Rejected vague memory
-
-- Type: `observation`
-- Summary: `Things got better after we tried some fixes.`
-- Root cause: `Not provided`
-- Resolution: `Not provided`
-
-Reject this memory with reason: `Too vague for future operators.`
+- Select `Demo — Checkout cache latency recurrence`.
+- Recall similar memories.
+- Show that active checkout memories appear.
+- Open Memory Inspector and show total, active, rejected, and superseded counts.
+- Filter by rejected and show `Checkout was slow and something needed fixing.`
+- Filter by superseded and show `Restart checkout workers when cache latency appears.`
+- Show that the replacement memory remains active.
+- Mention that feedback counts are seeded so reliability is visible immediately.
 
 ## What to avoid showing
 
@@ -108,4 +87,4 @@ Reject this memory with reason: `Too vague for future operators.`
 
 ## Cleanup notes
 
-Do not wipe existing data. If you create disposable records, leave them clearly marked with `Demo -` titles or manually reject/supersede disposable memories through the UI. Memory deletion is intentionally not implemented yet.
+Do not wipe existing data. The seed script intentionally has no reset flag. Demo incidents are clearly marked with `Demo —`; demo memories are linked to demo incidents. If cleanup is needed, review targeted manual cleanup carefully outside the demo. Memory deletion is intentionally not implemented in the app.
