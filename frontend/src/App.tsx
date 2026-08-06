@@ -65,6 +65,8 @@ interface SupersedeFormState {
 }
 
 type MemoryLifecycleAction = 'reject' | 'supersede'
+type InspectorStatusFilter = 'all' | MemoryStatus
+type InspectorMemoryTypeFilter = 'all' | MemoryType
 
 const emptyMemoryForm: MemoryFormState = {
   memory_type: 'resolution',
@@ -104,6 +106,23 @@ function formatSimilarity(value: number): string {
 
 function formatDistance(value: number): string {
   return value.toFixed(4)
+}
+
+function shortId(value: string): string {
+  return value.slice(0, 8)
+}
+
+function truncateText(value: string, maxLength = 64): string {
+  if (value.length <= maxLength) {
+    return value
+  }
+  return `${value.slice(0, maxLength - 1)}…`
+}
+
+function formatReplacementOption(memory: Memory): string {
+  return `${formatMemoryType(memory.memory_type)} · ${truncateText(
+    memory.summary,
+  )} · ${memory.status} · ${shortId(memory.id)}`
 }
 
 export default function App() {
@@ -157,11 +176,19 @@ export default function App() {
   const [supersedeForms, setSupersedeForms] = useState<
     Record<string, SupersedeFormState>
   >({})
+  const [inspectorMemories, setInspectorMemories] = useState<Memory[]>([])
+  const [isInspectorLoading, setIsInspectorLoading] = useState(false)
+  const [inspectorError, setInspectorError] = useState<string | null>(null)
+  const [inspectorStatusFilter, setInspectorStatusFilter] =
+    useState<InspectorStatusFilter>('all')
+  const [inspectorTypeFilter, setInspectorTypeFilter] =
+    useState<InspectorMemoryTypeFilter>('all')
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
   const memoryRequestId = useRef(0)
   const recallRequestId = useRef(0)
+  const inspectorRequestId = useRef(0)
 
   useEffect(() => {
     let isActive = true
@@ -188,6 +215,13 @@ export default function App() {
     return () => {
       isActive = false
     }
+  }, [])
+
+  useEffect(() => {
+    const requestId = inspectorRequestId.current + 1
+    inspectorRequestId.current = requestId
+    setIsInspectorLoading(true)
+    void refreshMemoryInspector(requestId)
   }, [])
 
   function updateForm<K extends keyof IncidentCreateInput>(
@@ -223,6 +257,31 @@ export default function App() {
         setIsMemoryListLoading(false)
       }
     }
+  }
+
+  async function refreshMemoryInspector(requestId: number) {
+    try {
+      const loadedMemories = await listMemories()
+      if (inspectorRequestId.current === requestId) {
+        setInspectorMemories(loadedMemories)
+        setInspectorError(null)
+      }
+    } catch (error) {
+      if (inspectorRequestId.current === requestId) {
+        setInspectorError(readableError(error))
+      }
+    } finally {
+      if (inspectorRequestId.current === requestId) {
+        setIsInspectorLoading(false)
+      }
+    }
+  }
+
+  function startMemoryInspectorRefresh() {
+    const requestId = inspectorRequestId.current + 1
+    inspectorRequestId.current = requestId
+    setIsInspectorLoading(true)
+    void refreshMemoryInspector(requestId)
   }
 
   function applyFeedbackResult(
@@ -262,6 +321,20 @@ export default function App() {
           : memory,
       ),
     )
+    setInspectorMemories((current) =>
+      current.map((memory) =>
+        memory.id === memoryId
+          ? {
+              ...memory,
+              success_count: result.success_count,
+              failure_count: result.failure_count,
+              reliability: result.reliability,
+              status: result.status,
+              updated_at: result.updated_at,
+            }
+          : memory,
+      ),
+    )
   }
 
   function applyLifecycleResult(
@@ -272,6 +345,9 @@ export default function App() {
       'superseded_by' in result ? result.superseded_by : null
     const supersededAt =
       'superseded_at' in result ? result.superseded_at : null
+    const replacement = supersededBy
+      ? inspectorMemories.find((memory) => memory.id === supersededBy)
+      : undefined
 
     setMemoryRecall((current) => {
       if (!current) {
@@ -287,6 +363,9 @@ export default function App() {
                 superseded_by: supersededBy,
                 superseded_at: supersededAt,
                 supersession_reason: result.supersession_reason,
+                replacement_memory_summary: replacement?.summary ?? null,
+                replacement_memory_type: replacement?.memory_type ?? null,
+                replacement_memory_status: replacement?.status ?? null,
               }
             : memory,
         ),
@@ -301,6 +380,26 @@ export default function App() {
               superseded_by: supersededBy,
               superseded_at: supersededAt,
               supersession_reason: result.supersession_reason,
+              replacement_memory_summary: replacement?.summary ?? null,
+              replacement_memory_type: replacement?.memory_type ?? null,
+              replacement_memory_status: replacement?.status ?? null,
+              updated_at: result.updated_at,
+            }
+          : memory,
+      ),
+    )
+    setInspectorMemories((current) =>
+      current.map((memory) =>
+        memory.id === memoryId
+          ? {
+              ...memory,
+              status: result.status,
+              superseded_by: supersededBy,
+              superseded_at: supersededAt,
+              supersession_reason: result.supersession_reason,
+              replacement_memory_summary: replacement?.summary ?? null,
+              replacement_memory_type: replacement?.memory_type ?? null,
+              replacement_memory_status: replacement?.status ?? null,
               updated_at: result.updated_at,
             }
           : memory,
@@ -567,6 +666,7 @@ export default function App() {
         setSupersedeForms({})
       }
       await refreshMemoriesForIncident(selectedIncident.id, requestId)
+      startMemoryInspectorRefresh()
     } catch (error) {
       if (memoryRequestId.current === requestId) {
         setMemoryFormError(readableError(error))
@@ -663,6 +763,7 @@ export default function App() {
         return next
       })
       refreshSelectedIncidentMemories()
+      startMemoryInspectorRefresh()
     } catch (error) {
       setLifecycleErrors((current) => ({
         ...current,
@@ -689,7 +790,7 @@ export default function App() {
     if (!supersededBy) {
       setLifecycleErrors((current) => ({
         ...current,
-        [memoryId]: 'Replacement memory ID is required.',
+        [memoryId]: 'Choose an active replacement memory.',
       }))
       return
     }
@@ -712,6 +813,7 @@ export default function App() {
         return next
       })
       refreshSelectedIncidentMemories()
+      startMemoryInspectorRefresh()
     } catch (error) {
       setLifecycleErrors((current) => ({
         ...current,
@@ -726,9 +828,114 @@ export default function App() {
     }
   }
 
+  const memoryCounts = inspectorMemories.reduce(
+    (counts, memory) => ({
+      total: counts.total + 1,
+      active: counts.active + (memory.status === 'active' ? 1 : 0),
+      rejected: counts.rejected + (memory.status === 'rejected' ? 1 : 0),
+      superseded:
+        counts.superseded + (memory.status === 'superseded' ? 1 : 0),
+    }),
+    { total: 0, active: 0, rejected: 0, superseded: 0 },
+  )
+  const activeMemoryOptions = inspectorMemories.filter(
+    (memory) => memory.status === 'active',
+  )
+  const filteredInspectorMemories = inspectorMemories.filter((memory) => {
+    const statusMatches =
+      inspectorStatusFilter === 'all' || memory.status === inspectorStatusFilter
+    const typeMatches =
+      inspectorTypeFilter === 'all' || memory.memory_type === inspectorTypeFilter
+    return statusMatches && typeMatches
+  })
+
+  function renderMemoryDetails(memory: Memory) {
+    return (
+      <>
+        {memory.root_cause && (
+          <p className="recall-detail">
+            <strong>Root cause:</strong> {memory.root_cause}
+          </p>
+        )}
+        {memory.resolution && (
+          <p className="recall-detail">
+            <strong>Resolution:</strong> {memory.resolution}
+          </p>
+        )}
+      </>
+    )
+  }
+
+  function renderLinkedIncident(memory: Memory) {
+    if (
+      !memory.linked_incident_title &&
+      !memory.linked_incident_service &&
+      !memory.linked_incident_environment
+    ) {
+      return null
+    }
+    return (
+      <div className="linked-incident">
+        <p>
+          <strong>Linked incident:</strong>{' '}
+          {memory.linked_incident_title ?? 'Untitled incident'}
+        </p>
+        <p>
+          {memory.linked_incident_service ?? 'Unknown service'} ·{' '}
+          {memory.linked_incident_environment ?? 'Unknown environment'}
+        </p>
+      </div>
+    )
+  }
+
+  function renderFeedbackControls(memoryId: string, status: MemoryStatus) {
+    return (
+      <div className="feedback-panel">
+        <div className="feedback-actions">
+          <button
+            className="secondary-button feedback-button"
+            type="button"
+            onClick={() => void handleMemoryFeedback(memoryId, 'success')}
+            disabled={feedbackPendingMemoryId === memoryId || status !== 'active'}
+          >
+            {feedbackPendingMemoryId === memoryId
+              ? 'Recording…'
+              : 'Mark successful'}
+          </button>
+          <button
+            className="secondary-button feedback-button"
+            type="button"
+            onClick={() => void handleMemoryFeedback(memoryId, 'failure')}
+            disabled={feedbackPendingMemoryId === memoryId || status !== 'active'}
+          >
+            {feedbackPendingMemoryId === memoryId
+              ? 'Recording…'
+              : 'Mark failed'}
+          </button>
+        </div>
+        {status !== 'active' && (
+          <p className="lifecycle-note">
+            Feedback is accepted only for active memories.
+          </p>
+        )}
+        {feedbackMessages[memoryId] && (
+          <p className="feedback-message">{feedbackMessages[memoryId]}</p>
+        )}
+        {feedbackErrors[memoryId] && (
+          <p className="feedback-message feedback-error" role="alert">
+            {feedbackErrors[memoryId]}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   function renderLifecycleDetails(memory: {
     superseded_by: string | null
     supersession_reason: string | null
+    replacement_memory_summary?: string | null
+    replacement_memory_type?: MemoryType | null
+    replacement_memory_status?: MemoryStatus | null
   }) {
     if (!memory.superseded_by && !memory.supersession_reason) {
       return null
@@ -738,6 +945,16 @@ export default function App() {
         {memory.superseded_by && (
           <p>
             <strong>Superseded by:</strong> {memory.superseded_by}
+          </p>
+        )}
+        {memory.replacement_memory_summary && (
+          <p>
+            <strong>Replacement:</strong>{' '}
+            {memory.replacement_memory_type
+              ? `${formatMemoryType(memory.replacement_memory_type)} · `
+              : ''}
+            {memory.replacement_memory_summary} ·{' '}
+            {memory.replacement_memory_status ?? 'active'}
           </p>
         )}
         {memory.supersession_reason && (
@@ -760,6 +977,9 @@ export default function App() {
       superseded_by: '',
       reason: '',
     }
+    const replacementOptions = activeMemoryOptions.filter(
+      (memory) => memory.id !== memoryId,
+    )
 
     if (status !== 'active') {
       return (
@@ -805,8 +1025,8 @@ export default function App() {
 
         <div className="lifecycle-grid lifecycle-grid-wide">
           <label>
-            Replacement memory ID
-            <input
+            Replacement memory
+            <select
               value={supersedeState.superseded_by}
               onChange={(event) =>
                 updateSupersedeForm(
@@ -815,8 +1035,19 @@ export default function App() {
                   event.target.value,
                 )
               }
-              placeholder="00000000-0000-0000-0000-000000000000"
-            />
+              disabled={replacementOptions.length === 0}
+            >
+              <option value="">
+                {replacementOptions.length === 0
+                  ? 'No other active memories'
+                  : 'Select an active memory'}
+              </option>
+              {replacementOptions.map((memory) => (
+                <option key={memory.id} value={memory.id}>
+                  {formatReplacementOption(memory)}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Supersession reason
@@ -833,11 +1064,20 @@ export default function App() {
             className="secondary-button lifecycle-button"
             type="button"
             onClick={() => void handleSupersedeMemory(memoryId)}
-            disabled={pendingReject || pendingSupersede}
+            disabled={
+              pendingReject ||
+              pendingSupersede ||
+              replacementOptions.length === 0
+            }
           >
             {pendingSupersede ? 'Superseding…' : 'Supersede memory'}
           </button>
         </div>
+        {replacementOptions.length === 0 && (
+          <p className="lifecycle-note">
+            Create another active memory before superseding this one.
+          </p>
+        )}
 
         {lifecycleMessages[memoryId] && (
           <p className="feedback-message">{lifecycleMessages[memoryId]}</p>
@@ -1308,64 +1548,10 @@ export default function App() {
                               {memory.why_recalled}
                             </p>
                             {renderLifecycleDetails(memory)}
-                            <div className="feedback-panel">
-                              <div className="feedback-actions">
-                                <button
-                                  className="secondary-button feedback-button"
-                                  type="button"
-                                  onClick={() =>
-                                    void handleMemoryFeedback(
-                                      memory.memory_id,
-                                      'success',
-                                    )
-                                  }
-                                  disabled={
-                                    feedbackPendingMemoryId === memory.memory_id ||
-                                    memory.status !== 'active'
-                                  }
-                                >
-                                  {feedbackPendingMemoryId === memory.memory_id
-                                    ? 'Recording…'
-                                    : 'Mark successful'}
-                                </button>
-                                <button
-                                  className="secondary-button feedback-button"
-                                  type="button"
-                                  onClick={() =>
-                                    void handleMemoryFeedback(
-                                      memory.memory_id,
-                                      'failure',
-                                    )
-                                  }
-                                  disabled={
-                                    feedbackPendingMemoryId === memory.memory_id ||
-                                    memory.status !== 'active'
-                                  }
-                                >
-                                  {feedbackPendingMemoryId === memory.memory_id
-                                    ? 'Recording…'
-                                    : 'Mark failed'}
-                                </button>
-                              </div>
-                              {memory.status !== 'active' && (
-                                <p className="lifecycle-note">
-                                  Feedback is accepted only for active memories.
-                                </p>
-                              )}
-                              {feedbackMessages[memory.memory_id] && (
-                                <p className="feedback-message">
-                                  {feedbackMessages[memory.memory_id]}
-                                </p>
-                              )}
-                              {feedbackErrors[memory.memory_id] && (
-                                <p
-                                  className="feedback-message feedback-error"
-                                  role="alert"
-                                >
-                                  {feedbackErrors[memory.memory_id]}
-                                </p>
-                              )}
-                            </div>
+                            {renderFeedbackControls(
+                              memory.memory_id,
+                              memory.status,
+                            )}
                             {renderLifecycleControls(
                               memory.memory_id,
                               memory.status,
@@ -1488,6 +1674,8 @@ export default function App() {
                             </span>
                           </div>
                           <p>{memory.summary}</p>
+                          {renderMemoryDetails(memory)}
+                          {renderLinkedIncident(memory)}
                           <dl className="memory-metadata">
                             <div>
                               <dt>Model</dt>
@@ -1511,6 +1699,7 @@ export default function App() {
                             </div>
                           </dl>
                           {renderLifecycleDetails(memory)}
+                          {renderFeedbackControls(memory.id, memory.status)}
                           {renderLifecycleControls(memory.id, memory.status)}
                         </article>
                       ))}
@@ -1521,6 +1710,159 @@ export default function App() {
             )}
           </section>
         </div>
+
+        <section
+          className="panel memory-inspector-panel"
+          aria-labelledby="memory-inspector-heading"
+        >
+          <div className="analysis-heading-row">
+            <div>
+              <p className="section-kicker">Memory Inspector</p>
+              <h2 id="memory-inspector-heading">Saved memories</h2>
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={startMemoryInspectorRefresh}
+              disabled={isInspectorLoading}
+            >
+              {isInspectorLoading ? 'Refreshing…' : 'Refresh memories'}
+            </button>
+          </div>
+
+          <dl className="memory-inspector-counts">
+            <div>
+              <dt>Total</dt>
+              <dd>{memoryCounts.total}</dd>
+            </div>
+            <div>
+              <dt>Active</dt>
+              <dd>{memoryCounts.active}</dd>
+            </div>
+            <div>
+              <dt>Rejected</dt>
+              <dd>{memoryCounts.rejected}</dd>
+            </div>
+            <div>
+              <dt>Superseded</dt>
+              <dd>{memoryCounts.superseded}</dd>
+            </div>
+          </dl>
+
+          <div className="inspector-filters">
+            <label>
+              Status
+              <select
+                value={inspectorStatusFilter}
+                onChange={(event) =>
+                  setInspectorStatusFilter(
+                    event.target.value as InspectorStatusFilter,
+                  )
+                }
+              >
+                <option value="all">all</option>
+                <option value="active">active</option>
+                <option value="rejected">rejected</option>
+                <option value="superseded">superseded</option>
+              </select>
+            </label>
+
+            <label>
+              Type
+              <select
+                value={inspectorTypeFilter}
+                onChange={(event) =>
+                  setInspectorTypeFilter(
+                    event.target.value as InspectorMemoryTypeFilter,
+                  )
+                }
+              >
+                <option value="all">all</option>
+                {memoryTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {formatMemoryType(type)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {inspectorError && (
+            <p className="message message-error" role="alert">
+              {inspectorError}
+            </p>
+          )}
+
+          {!isInspectorLoading &&
+            !inspectorError &&
+            filteredInspectorMemories.length === 0 && (
+              <p className="analysis-placeholder">
+                No memories match the current inspector filters.
+              </p>
+            )}
+
+          {filteredInspectorMemories.length > 0 && (
+            <div className="memory-list memory-inspector-list">
+              {filteredInspectorMemories.map((memory) => (
+                <article className="memory-row" key={memory.id}>
+                  <div className="memory-row-heading">
+                    <span className="memory-type">
+                      {formatMemoryType(memory.memory_type)}
+                    </span>
+                    <span className={`memory-status status-${memory.status}`}>
+                      {memory.status}
+                    </span>
+                  </div>
+
+                  <p>{memory.summary}</p>
+                  {renderMemoryDetails(memory)}
+                  {renderLinkedIncident(memory)}
+
+                  <dl className="memory-metadata inspector-memory-metadata">
+                    <div>
+                      <dt>Model</dt>
+                      <dd>{memory.embedding_model_id}</dd>
+                    </div>
+                    <div>
+                      <dt>Dimension</dt>
+                      <dd>{memory.embedding_dimension}</dd>
+                    </div>
+                    <div>
+                      <dt>Successes</dt>
+                      <dd>{memory.success_count}</dd>
+                    </div>
+                    <div>
+                      <dt>Failures</dt>
+                      <dd>{memory.failure_count}</dd>
+                    </div>
+                    <div>
+                      <dt>Reliability</dt>
+                      <dd>{formatSimilarity(memory.reliability)}</dd>
+                    </div>
+                    <div>
+                      <dt>Created</dt>
+                      <dd>{formatDate(memory.created_at)}</dd>
+                    </div>
+                    <div>
+                      <dt>Updated</dt>
+                      <dd>{formatDate(memory.updated_at)}</dd>
+                    </div>
+                  </dl>
+
+                  {renderLifecycleDetails(memory)}
+                  {memory.status !== 'active' && (
+                    <p className="lifecycle-note">
+                      Inactive memories are preserved and excluded from future
+                      recall.
+                    </p>
+                  )}
+                  {renderFeedbackControls(memory.id, memory.status)}
+                  {renderLifecycleControls(memory.id, memory.status)}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </main>
     </div>
   )

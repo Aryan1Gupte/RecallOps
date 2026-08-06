@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import RowMapping, Select, func, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from recallops.models.incident import Incident
 from recallops.models.memory import Memory
@@ -72,6 +72,12 @@ class MemoryRecord:
     supersession_reason: str | None
     created_at: datetime
     updated_at: datetime
+    linked_incident_title: str | None = None
+    linked_incident_service: str | None = None
+    linked_incident_environment: str | None = None
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: str | None = None
+    replacement_memory_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -499,7 +505,20 @@ def _search_similar_active_memories_for_sqlite(
 
 
 def _memory_record_select() -> Select[tuple[object, ...]]:
-    return select(*_memory_record_columns())
+    replacement_memory = aliased(Memory)
+    return (
+        select(
+            *_memory_record_columns(),
+            Incident.title.label("linked_incident_title"),
+            Incident.service.label("linked_incident_service"),
+            Incident.environment.label("linked_incident_environment"),
+            replacement_memory.summary.label("replacement_memory_summary"),
+            replacement_memory.memory_type.label("replacement_memory_type"),
+            replacement_memory.status.label("replacement_memory_status"),
+        )
+        .outerjoin(Incident, Memory.incident_id == Incident.id)
+        .outerjoin(replacement_memory, Memory.superseded_by == replacement_memory.id)
+    )
 
 
 def _get_memory_record_without_boundary(
@@ -579,6 +598,12 @@ def _memory_record_from_mapping(row: RowMapping) -> MemoryRecord:
         supersession_reason=row["supersession_reason"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        linked_incident_title=row.get("linked_incident_title"),
+        linked_incident_service=row.get("linked_incident_service"),
+        linked_incident_environment=row.get("linked_incident_environment"),
+        replacement_memory_summary=row.get("replacement_memory_summary"),
+        replacement_memory_type=row.get("replacement_memory_type"),
+        replacement_memory_status=row.get("replacement_memory_status"),
     )
 
 

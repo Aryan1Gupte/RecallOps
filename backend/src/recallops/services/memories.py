@@ -1,7 +1,7 @@
 """Memory application service."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from uuid import UUID
 
@@ -184,7 +184,7 @@ def create_memory(
 
     _validate_embedding_result(embedding_result)
 
-    return create_memory_record(
+    memory = create_memory_record(
         session,
         NewMemoryRecord(
             incident_id=command.incident_id,
@@ -197,6 +197,14 @@ def create_memory(
             embedding_model_id=embedding_result.model_id,
             embedding_dimension=embedding_result.dimension,
         ),
+    )
+    if incident_context is None:
+        return memory
+    return replace(
+        memory,
+        linked_incident_title=incident_context.title,
+        linked_incident_service=incident_context.service,
+        linked_incident_environment=incident_context.environment,
     )
 
 

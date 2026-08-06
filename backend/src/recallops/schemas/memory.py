@@ -87,6 +87,12 @@ class MemoryResponse(BaseModel):
     supersession_reason: str | None
     created_at: datetime
     updated_at: datetime
+    linked_incident_title: str | None = None
+    linked_incident_service: str | None = None
+    linked_incident_environment: str | None = None
+    replacement_memory_summary: str | None = None
+    replacement_memory_type: MemoryType | None = None
+    replacement_memory_status: MemoryStatus | None = None
 
     @computed_field
     @property

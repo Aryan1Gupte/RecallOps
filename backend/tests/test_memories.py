@@ -291,6 +291,86 @@ def test_public_memory_responses_exclude_raw_vector(client: TestClient) -> None:
     assert '"embedding":' not in listed.text
 
 
+def test_memory_responses_include_linked_incident_metadata(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+
+    created = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+    listed = client.get("/api/memories").json()[0]
+    retrieved = client.get(f"/api/memories/{created['id']}").json()
+
+    for memory in (created, listed, retrieved):
+        assert memory["linked_incident_title"] == "Checkout latency"
+        assert memory["linked_incident_service"] == "checkout-api"
+        assert memory["linked_incident_environment"] == "production"
+        assert memory["replacement_memory_summary"] is None
+        assert memory["replacement_memory_type"] is None
+        assert memory["replacement_memory_status"] is None
+        assert "vector" not in memory
+        assert "embedding" not in memory
+
+
+def test_superseded_memory_response_includes_replacement_metadata(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    original = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+    replacement_payload = memory_payload(incident["id"])
+    replacement_payload["memory_type"] = "procedure"
+    replacement_payload["summary"] = "Use the newer checkout restart runbook"
+    replacement = client.post("/api/memories", json=replacement_payload).json()
+
+    supersede_response = client.post(
+        f"/api/memories/{original['id']}/supersede",
+        json={
+            "superseded_by": replacement["id"],
+            "reason": "Newer procedure is clearer.",
+        },
+    )
+    listed = client.get(
+        "/api/memories",
+        params={"status": "superseded"},
+    ).json()
+    retrieved = client.get(f"/api/memories/{original['id']}").json()
+
+    assert supersede_response.status_code == 200
+    assert len(listed) == 1
+    for memory in (listed[0], retrieved):
+        assert memory["status"] == "superseded"
+        assert memory["superseded_by"] == replacement["id"]
+        assert memory["replacement_memory_summary"] == (
+            "Use the newer checkout restart runbook"
+        )
+        assert memory["replacement_memory_type"] == "procedure"
+        assert memory["replacement_memory_status"] == "active"
+        assert "vector" not in memory
+        assert "embedding" not in memory
+
+
+def test_active_replacement_candidates_are_available_through_list_endpoint(
+    client: TestClient,
+) -> None:
+    incident = create_test_incident(client)
+    override_embedding_service(FakeEmbeddingService())
+    original = client.post("/api/memories", json=memory_payload(incident["id"])).json()
+    replacement_payload = memory_payload(incident["id"])
+    replacement_payload["summary"] = "Active replacement candidate"
+    replacement = client.post("/api/memories", json=replacement_payload).json()
+    client.post(
+        f"/api/memories/{original['id']}/reject",
+        json={"reason": "Disposable inactive memory."},
+    )
+
+    response = client.get("/api/memories", params={"status": "active"})
+
+    assert response.status_code == 200
+    assert [memory["id"] for memory in response.json()] == [replacement["id"]]
+    assert response.json()[0]["summary"] == "Active replacement candidate"
+
+
 def test_feedback_success_increments_success_count_and_reliability(
     client: TestClient,
 ) -> None:

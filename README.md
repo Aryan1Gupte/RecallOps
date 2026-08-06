@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -218,6 +218,8 @@ Retrieve one memory by ID:
 curl http://127.0.0.1:8000/api/memories/00000000-0000-0000-0000-000000000000
 ```
 
+Memory list/get responses include derived reliability plus safe inspector metadata when available: linked incident title/service/environment, and replacement memory summary/type/status for superseded memories. These metadata fields help the frontend explain why a memory is active, rejected, or superseded without exposing vectors.
+
 Record feedback for an active memory:
 
 ```bash
@@ -276,6 +278,22 @@ curl --request POST \
 If both memories exist and the replacement is active, RecallOps sets the original memory to `superseded`, records `superseded_by`, `superseded_at`, `supersession_reason`, and `updated_at`, and does not modify the replacement memory. A memory cannot supersede itself. Rejected memories cannot be superseded through this workflow. If the original memory is already superseded, the endpoint returns the current superseded state safely rather than rewriting its audit fields.
 
 Lifecycle actions are deterministic database mutations and do not call Bedrock, Titan, Nova, vector search, or any other model provider. They do not delete rows. Inactive memories remain available through memory list/get APIs but are excluded from future recall, and feedback remains accepted only for active memories.
+
+## Memory Inspector
+
+The frontend Memory Inspector appears below the incident dashboard. It loads saved memories through `GET /api/memories` and provides:
+
+- total, active, rejected, and superseded counts
+- status filter: all, active, rejected, superseded
+- memory type filter: all, resolution, failed action, procedure, observation
+- refresh control
+- cards showing summary, optional root cause/resolution, linked incident metadata, embedding model and dimension, success/failure counts, derived reliability, lifecycle reason, replacement memory metadata, and created/updated timestamps
+
+For active memories, the inspector exposes Mark successful, Mark failed, Reject memory, and Supersede memory actions. Feedback updates reliability through the same counter endpoint used by recall cards. Reject and supersede actions use the existing lifecycle endpoints and update the visible card after success.
+
+Supersession uses a dropdown of active memories rather than a raw replacement UUID input. The current memory is excluded from its own replacement options. Dropdown labels show the memory type, a shortened summary, active status, and a short ID hint so users can choose a replacement without copying UUIDs from CockroachDB. Recall cards use the same active-memory dropdown.
+
+Rejected and superseded memories remain visible in the inspector, but feedback controls are disabled and the UI explains that inactive memories are preserved and excluded from future recall. Raw memory vectors and query vectors are never displayed. The Memory Inspector is a visibility and management surface only; it is not an agent loop, MCP integration, automatic extraction system, deletion workflow, or deployment feature.
 
 The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and lifecycle workflows have stable storage. This milestone still does not implement memory deletion, automatic stale-memory detection, audit/event tables, or agent retrieval behavior.
 

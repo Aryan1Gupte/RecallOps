@@ -27,6 +27,12 @@ export interface Memory {
   supersession_reason: string | null
   created_at: string
   updated_at: string
+  linked_incident_title: string | null
+  linked_incident_service: string | null
+  linked_incident_environment: string | null
+  replacement_memory_summary: string | null
+  replacement_memory_type: MemoryType | null
+  replacement_memory_status: MemoryStatus | null
 }
 
 export interface MemoryCreateInput {
@@ -58,6 +64,9 @@ export interface RecalledMemory {
   superseded_by: string | null
   superseded_at: string | null
   supersession_reason: string | null
+  replacement_memory_summary?: string | null
+  replacement_memory_type?: MemoryType | null
+  replacement_memory_status?: MemoryStatus | null
   cosine_distance: number
   similarity: number
   reliability: number

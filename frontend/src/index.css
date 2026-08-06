@@ -521,6 +521,13 @@ dd {
   border-top: 1px solid #d9e1db;
 }
 
+.memory-inspector-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1.35rem;
+}
+
 .analysis-heading-row {
   display: flex;
   align-items: center;
@@ -845,6 +852,26 @@ dd {
   font-size: 0.7rem;
 }
 
+.linked-incident {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e0e7e2;
+  border-radius: 0.6rem;
+  background: #f7faf8;
+}
+
+.linked-incident p {
+  margin: 0;
+  color: #55665d;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.linked-incident strong {
+  color: #34483d;
+}
+
 .memory-loading {
   color: #6a7a70;
   font-size: 0.72rem;
@@ -885,6 +912,27 @@ dd {
 .memory-list {
   display: grid;
   gap: 0.75rem;
+}
+
+.memory-inspector-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.memory-inspector-counts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.memory-inspector-counts dd {
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.inspector-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 14rem);
+  gap: 0.75rem;
+  align-items: end;
 }
 
 .memory-row {
@@ -955,9 +1003,14 @@ dd {
   margin-top: 0;
 }
 
+.inspector-memory-metadata {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 @media (max-width: 980px) {
   form,
-  .workspace {
+  .workspace,
+  .memory-inspector-list {
     grid-template-columns: 1fr;
   }
 
@@ -999,8 +1052,11 @@ dd {
   .recall-metadata,
   .lifecycle-grid,
   .lifecycle-grid-wide,
+  .memory-inspector-counts,
+  .inspector-filters,
   .memory-form-grid,
-  .memory-metadata {
+  .memory-metadata,
+  .inspector-memory-metadata {
     grid-template-columns: 1fr;
   }
 
