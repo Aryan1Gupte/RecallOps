@@ -196,6 +196,7 @@ export default function App() {
   const analysisRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
   const memoryRequestId = useRef(0)
+  const saveMemoryRequestId = useRef(0)
   const recallRequestId = useRef(0)
   const inspectorRequestId = useRef(0)
   const selectedIncidentIdRef = useRef<string | null>(null)
@@ -259,13 +260,6 @@ export default function App() {
 
   function isIncidentStillSelected(incidentId: string | null) {
     return incidentId !== null && selectedIncidentIdRef.current === incidentId
-  }
-
-  function resetPendingActions() {
-    feedbackPendingMemoryIdsRef.current = {}
-    lifecyclePendingByMemoryRef.current = {}
-    setFeedbackPendingMemoryIds({})
-    setLifecyclePendingByMemory({})
   }
 
   function startFeedbackPending(memoryId: string): boolean {
@@ -577,6 +571,7 @@ export default function App() {
       analysisRequestId.current += 1
       embeddingRequestId.current += 1
       memoryRequestId.current += 1
+      saveMemoryRequestId.current += 1
       recallRequestId.current += 1
       setCurrentIncident(created)
       setListError(null)
@@ -596,7 +591,6 @@ export default function App() {
       setMemoryRecall(null)
       setMemoryRecallError(null)
       setIsRecallingMemories(false)
-      resetPendingActions()
       setFeedbackMessages({})
       setFeedbackErrors({})
       setLifecycleMessages({})
@@ -616,6 +610,7 @@ export default function App() {
     detailRequestId.current = requestId
     analysisRequestId.current += 1
     embeddingRequestId.current += 1
+    saveMemoryRequestId.current += 1
     recallRequestId.current += 1
     const selectedMemoryRequestId = memoryRequestId.current + 1
     memoryRequestId.current = selectedMemoryRequestId
@@ -637,7 +632,6 @@ export default function App() {
     setMemoryRecall(null)
     setMemoryRecallError(null)
     setIsRecallingMemories(false)
-    resetPendingActions()
     setFeedbackMessages({})
     setFeedbackErrors({})
     setLifecycleMessages({})
@@ -744,8 +738,8 @@ export default function App() {
       return
     }
 
-    const requestId = memoryRequestId.current + 1
-    memoryRequestId.current = requestId
+    const saveRequestId = saveMemoryRequestId.current + 1
+    saveMemoryRequestId.current = saveRequestId
     setIsSavingMemory(true)
     setMemoryFormError(null)
     setMemoryListError(null)
@@ -753,9 +747,11 @@ export default function App() {
     try {
       await createMemory(input)
       if (
-        memoryRequestId.current === requestId &&
+        saveMemoryRequestId.current === saveRequestId &&
         isIncidentStillSelected(incidentId)
       ) {
+        const listRequestId = memoryRequestId.current + 1
+        memoryRequestId.current = listRequestId
         setMemoryForm(emptyMemoryForm)
         setIsMemoryListLoading(true)
         setMemoryRecall(null)
@@ -766,16 +762,18 @@ export default function App() {
         setLifecycleErrors({})
         setRejectReasons({})
         setSupersedeForms({})
+        await refreshMemoriesForIncident(incidentId, listRequestId)
       }
-      await refreshMemoriesForIncident(incidentId, requestId)
       startMemoryInspectorRefresh()
     } catch (error) {
-      if (memoryRequestId.current === requestId) {
+      if (
+        saveMemoryRequestId.current === saveRequestId &&
+        isIncidentStillSelected(incidentId)
+      ) {
         setMemoryFormError(readableError(error))
-        setIsMemoryListLoading(false)
       }
     } finally {
-      if (memoryRequestId.current === requestId) {
+      if (saveMemoryRequestId.current === saveRequestId) {
         setIsSavingMemory(false)
       }
     }

@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. MCP, authentication, agent tool execution, background jobs, streaming, seed datasets, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. MCP, authentication, agent tool execution, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
 
 ## Prerequisites
 
@@ -62,12 +62,15 @@ npm run build
 ```
 
 For the pre-deployment path, RecallOps expects same-origin serving: when a
-built frontend directory exists, the FastAPI app serves it while keeping API
-routes under `/api`. By default the backend looks for the repository-local
+built Vite frontend artifact exists, the FastAPI app serves it while keeping
+API routes under `/api`. By default the backend looks for the repository-local
 `frontend/dist`; deployment can set `RECALL_OPS_FRONTEND_DIST` to an explicit
-build directory. Local Vite development still uses the Vite proxy, so the
-frontend API clients can keep the relative `/api` base path without adding
-deployment CORS requirements yet.
+build directory. The backend only mounts a directory named `dist` that contains
+`index.html` and Vite build assets. Source-like directories such as `frontend/`,
+`src/`, or directories containing `package.json` or `vite.config.ts` are not
+mounted. Local Vite development still uses the Vite proxy, so the frontend API
+clients can keep the relative `/api` base path without adding deployment CORS
+requirements yet.
 
 ## Demo flow
 
@@ -130,6 +133,23 @@ Set `BEDROCK_EMBEDDING_MODEL_ID` to the Titan Text Embeddings V2 model used for 
 AWS credentials must be configured outside this repository through the normal AWS SDK credential provider chain, such as a local shared AWS profile or an assigned runtime role. Never place or commit AWS keys in `.env`, `.env.example`, source files, tests, or documentation.
 
 `APP_NAME`, `APP_ENV`, `API_PREFIX`, and `RECALL_OPS_FRONTEND_DIST` have development-friendly defaults. `DATABASE_URL` is required only when an endpoint, health check, or migration starts database functionality. Missing embedding configuration does not prevent process health, database health, incident CRUD, or incident analysis from starting.
+
+Public API docs are configurable for deployment. Local development keeps
+`/docs`, `/redoc`, and `/openapi.json` enabled by default. When
+`APP_ENV=production`, docs default to disabled; set
+`RECALL_OPS_ENABLE_API_DOCS=true` only when a deployment should expose them.
+Set `RECALL_OPS_ENABLE_API_DOCS=false` to disable docs explicitly in any
+environment.
+
+Paid AI endpoints have a basic in-memory fixed-window rate limiter for demo
+safety. It protects incident analysis, embedding preview, memory creation, and
+memory recall because those endpoints can call Bedrock or Titan. Simple read
+endpoints and health checks are not rate-limited. The defaults are
+`RECALL_OPS_ENABLE_AI_RATE_LIMIT=true`,
+`RECALL_OPS_AI_RATE_LIMIT_REQUESTS=30`, and
+`RECALL_OPS_AI_RATE_LIMIT_WINDOW_SECONDS=60`. The limiter is process-local and
+intended for the hackathon deployment path, not as a substitute for a managed
+edge or API-gateway limiter.
 
 ## Database migrations
 

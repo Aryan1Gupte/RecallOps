@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from recallops.api.rate_limit import paid_ai_rate_limit
 from recallops.ai.bedrock import AnalysisServiceError
 from recallops.ai.dependencies import (
     EmbeddingServiceFactory,
@@ -113,6 +114,7 @@ def get_incident_endpoint(
 @router.post("/{incident_id}/analysis", response_model=IncidentAnalysisResponse)
 def analyze_incident_endpoint(
     incident_id: UUID,
+    _: None = Depends(paid_ai_rate_limit),
     session: Session = Depends(get_db),
     service_factory: IncidentAnalysisServiceFactory = Depends(
         get_incident_analysis_service_factory
@@ -157,6 +159,7 @@ def analyze_incident_endpoint(
 )
 def preview_incident_embedding_endpoint(
     incident_id: UUID,
+    _: None = Depends(paid_ai_rate_limit),
     session: Session = Depends(get_db),
     service_factory: EmbeddingServiceFactory = Depends(
         get_embedding_service_factory
@@ -195,7 +198,7 @@ def preview_incident_embedding_endpoint(
         ) from None
 
     return IncidentEmbeddingPreviewResponse(
-        incident_id=incident.id,
+        incident_id=incident_input.incident_id,
         model_id=result.model_id,
         dimension=result.dimension,
         input_text_token_count=result.input_text_token_count,
@@ -216,6 +219,7 @@ def recall_incident_memories_endpoint(
         ge=MIN_ALLOWED_RECALL_SIMILARITY,
         le=1.0,
     ),
+    _: None = Depends(paid_ai_rate_limit),
     session: Session = Depends(get_db),
     service_factory: EmbeddingServiceFactory = Depends(
         get_embedding_service_factory

@@ -10,6 +10,19 @@ from recallops.database.base import Base
 from recallops.database.session import get_db
 from recallops.main import app
 from recallops import models  # noqa: F401  # Register model metadata.
+from recallops.api.rate_limit import reset_ai_rate_limiter_for_tests
+from recallops.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def reset_process_config_and_rate_limits() -> Generator[None, None, None]:
+    """Keep process-local deployment controls from leaking between tests."""
+
+    get_settings.cache_clear()
+    reset_ai_rate_limiter_for_tests()
+    yield
+    get_settings.cache_clear()
+    reset_ai_rate_limiter_for_tests()
 
 
 @pytest.fixture

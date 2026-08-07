@@ -17,6 +17,10 @@ class Settings:
     bedrock_chat_model_id: str | None
     bedrock_embedding_model_id: str | None
     frontend_dist: str | None
+    enable_api_docs: bool
+    enable_ai_rate_limit: bool
+    ai_rate_limit_requests: int
+    ai_rate_limit_window_seconds: int
 
     def require_database_url(self) -> str:
         """Return the database URL only when database functionality needs it."""
@@ -100,13 +104,51 @@ class BedrockEmbeddingConfigurationError(RuntimeError):
 def get_settings() -> Settings:
     """Load settings from the environment, with local-development defaults."""
 
+    app_env = os.getenv("APP_ENV", "development")
+    is_production = app_env.strip().casefold() == "production"
     return Settings(
         app_name=os.getenv("APP_NAME", "RecallOps"),
-        app_env=os.getenv("APP_ENV", "development"),
+        app_env=app_env,
         api_prefix=os.getenv("API_PREFIX", "/api"),
         database_url=os.getenv("DATABASE_URL"),
         aws_region=os.getenv("AWS_REGION"),
         bedrock_chat_model_id=os.getenv("BEDROCK_CHAT_MODEL_ID"),
         bedrock_embedding_model_id=os.getenv("BEDROCK_EMBEDDING_MODEL_ID"),
         frontend_dist=os.getenv("RECALL_OPS_FRONTEND_DIST"),
+        enable_api_docs=_env_bool(
+            "RECALL_OPS_ENABLE_API_DOCS",
+            default=not is_production,
+        ),
+        enable_ai_rate_limit=_env_bool(
+            "RECALL_OPS_ENABLE_AI_RATE_LIMIT",
+            default=True,
+        ),
+        ai_rate_limit_requests=_env_int(
+            "RECALL_OPS_AI_RATE_LIMIT_REQUESTS",
+            default=30,
+            minimum=1,
+        ),
+        ai_rate_limit_window_seconds=_env_int(
+            "RECALL_OPS_AI_RATE_LIMIT_WINDOW_SECONDS",
+            default=60,
+            minimum=1,
+        ),
     )
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, *, default: int, minimum: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value.strip())
+    except ValueError:
+        return default
+    return max(minimum, parsed)

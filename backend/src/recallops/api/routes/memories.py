@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from recallops.api.rate_limit import paid_ai_rate_limit
 from recallops.ai.dependencies import (
     EmbeddingServiceFactory,
     get_embedding_service_factory,
@@ -59,6 +60,7 @@ def persistence_unavailable() -> HTTPException:
 @router.post("", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED)
 def create_memory_endpoint(
     payload: MemoryCreate,
+    _: None = Depends(paid_ai_rate_limit),
     session: Session = Depends(get_db),
     service_factory: EmbeddingServiceFactory = Depends(
         get_embedding_service_factory
