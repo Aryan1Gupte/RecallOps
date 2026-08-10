@@ -207,6 +207,7 @@ export default function App() {
   const [inspectorMemories, setInspectorMemories] = useState<Memory[]>([])
   const [isInspectorLoading, setIsInspectorLoading] = useState(false)
   const [inspectorError, setInspectorError] = useState<string | null>(null)
+  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false)
   const [activeDetailTab, setActiveDetailTab] =
     useState<DetailTab>('recommendation')
   const [showDemoIncidentsOnly, setShowDemoIncidentsOnly] = useState(false)
@@ -237,6 +238,11 @@ export default function App() {
         if (isActive) {
           setIncidents(loadedIncidents)
           setListError(null)
+          // Runs once on mount only, so a later manual toggle is never
+          // overridden. Keeps smoke-test records out of the first view.
+          if (loadedIncidents.some(isDemoIncident)) {
+            setShowDemoIncidentsOnly(true)
+          }
         }
       } catch (error) {
         if (isActive) {
@@ -598,6 +604,12 @@ export default function App() {
       saveMemoryRequestId.current += 1
       recallRequestId.current += 1
       setCurrentIncident(created)
+      setIsCreateFormOpen(false)
+      // A newly created incident is normally not a demo record, so keep it
+      // visible in the queue instead of hiding it behind the demo filter.
+      if (!isDemoIncident(created)) {
+        setShowDemoIncidentsOnly(false)
+      }
       setListError(null)
       setDetailError(null)
       setAnalysis(null)
@@ -1427,12 +1439,24 @@ export default function App() {
 
       <main>
         <section className="panel create-panel" aria-labelledby="create-heading">
-          <div className="section-heading">
-            <p className="section-kicker">New record</p>
-            <h2 id="create-heading">Create incident</h2>
+          <div className="section-heading section-heading-row create-heading-row">
+            <div>
+              <p className="section-kicker">New record</p>
+              <h2 id="create-heading">Create incident</h2>
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              aria-expanded={isCreateFormOpen}
+              aria-controls="create-incident-form"
+              onClick={() => setIsCreateFormOpen((isOpen) => !isOpen)}
+            >
+              {isCreateFormOpen ? 'Close' : 'Create new incident'}
+            </button>
           </div>
 
-          <form onSubmit={handleSubmit}>
+          {isCreateFormOpen && (
+          <form id="create-incident-form" onSubmit={handleSubmit}>
             <label>
               Title
               <input
@@ -1497,6 +1521,7 @@ export default function App() {
               {isCreating ? 'Creating…' : 'Create incident'}
             </button>
           </form>
+          )}
         </section>
 
         <div className="workspace">
@@ -2293,7 +2318,9 @@ export default function App() {
 
                   {!isMemoryListLoading && !memoryListError && memories.length === 0 && (
                     <p className="analysis-placeholder">
-                      No saved memories for this incident yet.
+                      No memories are directly linked to this incident yet.
+                      RecallOps can still use memories from similar past
+                      incidents through semantic recall.
                     </p>
                   )}
 

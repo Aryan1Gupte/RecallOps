@@ -126,6 +126,16 @@ main {
   gap: 1rem;
 }
 
+/* Collapsed create panel should not keep the spacing meant for the form. */
+.create-heading-row {
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.create-panel form {
+  margin-top: 1.2rem;
+}
+
 .section-kicker {
   margin: 0 0 0.35rem;
   color: #658072;
