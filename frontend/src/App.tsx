@@ -70,6 +70,15 @@ interface SupersedeFormState {
 type MemoryLifecycleAction = 'reject' | 'supersede'
 type InspectorStatusFilter = 'all' | MemoryStatus
 type InspectorMemoryTypeFilter = 'all' | MemoryType
+type DetailTab = 'recommendation' | 'recall' | 'memory' | 'advanced'
+
+// Matches the seeded demo prefix, including the legacy form without a
+// trailing space. Used for display and filtering only; no data is mutated.
+const DEMO_INCIDENT_PREFIX = 'Demo —'
+
+function isDemoIncident(incident: Incident): boolean {
+  return incident.title.startsWith(DEMO_INCIDENT_PREFIX)
+}
 
 const emptyMemoryForm: MemoryFormState = {
   memory_type: 'resolution',
@@ -198,6 +207,9 @@ export default function App() {
   const [inspectorMemories, setInspectorMemories] = useState<Memory[]>([])
   const [isInspectorLoading, setIsInspectorLoading] = useState(false)
   const [inspectorError, setInspectorError] = useState<string | null>(null)
+  const [activeDetailTab, setActiveDetailTab] =
+    useState<DetailTab>('recommendation')
+  const [showDemoIncidentsOnly, setShowDemoIncidentsOnly] = useState(false)
   const [inspectorStatusFilter, setInspectorStatusFilter] =
     useState<InspectorStatusFilter>('all')
   const [inspectorTypeFilter, setInspectorTypeFilter] =
@@ -603,6 +615,7 @@ export default function App() {
       setMemoryFormError(null)
       setIsMemoryListLoading(false)
       setIsSavingMemory(false)
+      setActiveDetailTab('recommendation')
       setMemoryRecall(null)
       setMemoryRecallError(null)
       setIsRecallingMemories(false)
@@ -648,6 +661,7 @@ export default function App() {
     setMemoryFormError(null)
     setIsMemoryListLoading(true)
     setIsSavingMemory(false)
+    setActiveDetailTab('recommendation')
     setMemoryRecall(null)
     setMemoryRecallError(null)
     setIsRecallingMemories(false)
@@ -1003,6 +1017,40 @@ export default function App() {
       inspectorTypeFilter === 'all' || memory.memory_type === inspectorTypeFilter
     return statusMatches && typeMatches
   })
+  const demoIncidentCount = incidents.filter(isDemoIncident).length
+  const visibleIncidents = showDemoIncidentsOnly
+    ? incidents.filter(isDemoIncident)
+    : incidents
+  const detailTabs: { id: DetailTab; label: string; count: number | null }[] = [
+    {
+      id: 'recommendation',
+      label: 'Recommendation',
+      count: agentRecommendation
+        ? agentRecommendation.recalled_memories.length
+        : null,
+    },
+    {
+      id: 'recall',
+      label: 'Recalled memories',
+      count: memoryRecall ? memoryRecall.memories.length : null,
+    },
+    {
+      id: 'memory',
+      label: 'Save memory',
+      count: memories.length > 0 ? memories.length : null,
+    },
+    { id: 'advanced', label: 'Advanced details', count: null },
+  ]
+
+  async function runRecommendationFromSummary() {
+    setActiveDetailTab('recommendation')
+    await handleMemoryAssistedRecommendation()
+  }
+
+  async function runRecallFromSummary() {
+    setActiveDetailTab('recall')
+    await handleRecallMemories()
+  }
 
   function renderMemoryDetails(memory: Memory) {
     return (
@@ -1459,9 +1507,23 @@ export default function App() {
                 <h2 id="list-heading">Incidents</h2>
               </div>
               {!isLoading && !listError && (
-                <span className="count-badge">{incidents.length}</span>
+                <span className="count-badge">{visibleIncidents.length}</span>
               )}
             </div>
+
+            {!isLoading && !listError && demoIncidentCount > 0 && (
+              <label className="demo-toggle">
+                <input
+                  type="checkbox"
+                  checked={showDemoIncidentsOnly}
+                  onChange={(event) =>
+                    setShowDemoIncidentsOnly(event.target.checked)
+                  }
+                />
+                Demo records only
+                <span className="demo-toggle-count">{demoIncidentCount}</span>
+              </label>
+            )}
 
             {isLoading && <p className="message">Loading incidents…</p>}
             {listError && (
@@ -1476,8 +1538,17 @@ export default function App() {
               </div>
             )}
 
+            {!isLoading &&
+              !listError &&
+              incidents.length > 0 &&
+              visibleIncidents.length === 0 && (
+                <p className="analysis-placeholder">
+                  No demo records match this filter.
+                </p>
+              )}
+
             <div className="incident-list">
-              {incidents.map((incident) => (
+              {visibleIncidents.map((incident) => (
                 <button
                   className={`incident-row ${
                     selectedIncident?.id === incident.id ? 'incident-row-selected' : ''
@@ -1489,7 +1560,12 @@ export default function App() {
                 >
                   <span className="incident-row-main">
                     <strong>{incident.title}</strong>
-                    <span>{incident.service}</span>
+                    <span className="incident-row-service">
+                      {incident.service}
+                      {isDemoIncident(incident) && (
+                        <span className="demo-badge">Demo</span>
+                      )}
+                    </span>
                   </span>
                   <span className="incident-row-meta">
                     <span className={`status-pill status-${incident.status}`}>
@@ -1518,11 +1594,54 @@ export default function App() {
               </div>
             ) : (
               <article className="incident-detail">
-                <div className="detail-title-row">
-                  <h3>{selectedIncident.title}</h3>
-                  <span className={`status-pill status-${selectedIncident.status}`}>
-                    {selectedIncident.status}
-                  </span>
+                <div className="incident-summary-bar">
+                  <div className="detail-title-row">
+                    <h3>{selectedIncident.title}</h3>
+                    <span
+                      className={`status-pill status-${selectedIncident.status}`}
+                    >
+                      {selectedIncident.status}
+                    </span>
+                  </div>
+
+                  <div className="incident-chips">
+                    <span className="incident-chip">
+                      {selectedIncident.service}
+                    </span>
+                    <span className="incident-chip">
+                      {selectedIncident.environment}
+                    </span>
+                    {isDemoIncident(selectedIncident) && (
+                      <span className="incident-chip incident-chip-demo">
+                        Demo record
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="description">{selectedIncident.description}</p>
+
+                  <div className="incident-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => void runRecommendationFromSummary()}
+                      disabled={isRunningAgentRecommendation}
+                    >
+                      {isRunningAgentRecommendation
+                        ? 'Running…'
+                        : 'Run memory-assisted recommendation'}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void runRecallFromSummary()}
+                      disabled={isRecallingMemories}
+                    >
+                      {isRecallingMemories
+                        ? 'Recalling…'
+                        : 'Recall similar memories'}
+                    </button>
+                  </div>
                 </div>
 
                 {isDetailLoading && <p className="message">Refreshing details…</p>}
@@ -1532,8 +1651,39 @@ export default function App() {
                   </p>
                 )}
 
-                <p className="description">{selectedIncident.description}</p>
+                <div
+                  className="detail-tabs"
+                  role="tablist"
+                  aria-label="Incident detail sections"
+                >
+                  {detailTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      id={`detail-tab-${tab.id}`}
+                      className={`detail-tab ${
+                        activeDetailTab === tab.id ? 'detail-tab-active' : ''
+                      }`}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeDetailTab === tab.id}
+                      aria-controls={`detail-panel-${tab.id}`}
+                      onClick={() => setActiveDetailTab(tab.id)}
+                    >
+                      {tab.label}
+                      {tab.count !== null && (
+                        <span className="detail-tab-count">{tab.count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
 
+                {activeDetailTab === 'advanced' && (
+                <div
+                  className="detail-tab-panel"
+                  id="detail-panel-advanced"
+                  role="tabpanel"
+                  aria-labelledby="detail-tab-advanced"
+                >
                 <dl>
                   <div>
                     <dt>Service</dt>
@@ -1703,7 +1853,16 @@ export default function App() {
                     </div>
                   )}
                 </section>
+                </div>
+                )}
 
+                {activeDetailTab === 'recall' && (
+                <div
+                  className="detail-tab-panel"
+                  id="detail-panel-recall"
+                  role="tabpanel"
+                  aria-labelledby="detail-tab-recall"
+                >
                 <section className="recall-section" aria-labelledby="recall-heading">
                   <div className="analysis-heading-row">
                     <div>
@@ -1859,6 +2018,16 @@ export default function App() {
                   )}
                 </section>
 
+                </div>
+                )}
+
+                {activeDetailTab === 'recommendation' && (
+                <div
+                  className="detail-tab-panel"
+                  id="detail-panel-recommendation"
+                  role="tabpanel"
+                  aria-labelledby="detail-tab-recommendation"
+                >
                 <section className="agent-section" aria-labelledby="agent-heading">
                   <div className="analysis-heading-row">
                     <div>
@@ -2020,6 +2189,16 @@ export default function App() {
                   )}
                 </section>
 
+                </div>
+                )}
+
+                {activeDetailTab === 'memory' && (
+                <div
+                  className="detail-tab-panel"
+                  id="detail-panel-memory"
+                  role="tabpanel"
+                  aria-labelledby="detail-tab-memory"
+                >
                 <section className="memory-section" aria-labelledby="memory-heading">
                   <div className="analysis-heading-row">
                     <div>
@@ -2159,6 +2338,8 @@ export default function App() {
                     </div>
                   )}
                 </section>
+                </div>
+                )}
               </article>
             )}
           </section>

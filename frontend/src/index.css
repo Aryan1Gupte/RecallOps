@@ -267,15 +267,157 @@ form .message {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(22rem, 0.8fr);
+  /* Narrow queue rail on the left, wide working area on the right so
+     recommendation and recall content can use the available width. */
+  grid-template-columns: minmax(16rem, 0.85fr) minmax(0, 2.35fr);
   gap: 1.25rem;
   margin-top: 1.25rem;
+  align-items: start;
 }
 
 .list-panel,
 .detail-panel {
   min-height: 28rem;
   padding: 1.35rem;
+}
+
+.demo-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+  color: #45584d;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.demo-toggle input {
+  width: auto;
+  margin: 0;
+  accent-color: #37634d;
+  cursor: pointer;
+}
+
+.demo-toggle-count,
+.demo-badge {
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  color: #37634d;
+  background: #e5eee8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.incident-row-service {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.demo-badge {
+  text-transform: uppercase;
+}
+
+.incident-summary-bar {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #d9e1db;
+  border-radius: 0.85rem;
+  background: #f6faf7;
+}
+
+.incident-summary-bar .description {
+  margin: 0;
+}
+
+.incident-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.incident-chip {
+  border: 1px solid #d5ded8;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  color: #45584d;
+  background: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.incident-chip-demo {
+  color: #37634d;
+  border-color: #bcd4c5;
+  background: #e5eee8;
+}
+
+.incident-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1.1rem;
+  border-bottom: 1px solid #dde4df;
+  padding-bottom: 0.5rem;
+}
+
+.detail-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  color: #52645a;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.detail-tab:hover {
+  color: #2f4a3b;
+  background: #eef4f0;
+}
+
+.detail-tab-active,
+.detail-tab-active:hover {
+  color: #24402f;
+  border-color: #bcd4c5;
+  background: #e5eee8;
+}
+
+.detail-tab-count {
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  color: #37634d;
+  background: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.detail-tab-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+/* Section rules existed to separate stacked sections. The first element in a
+   tab panel no longer needs a leading divider. */
+.detail-tab-panel > :first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
 }
 
 .count-badge {
@@ -297,9 +439,10 @@ form .message {
 
 .incident-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 1rem;
+  /* Stacked so titles and meta stay readable in the narrow queue rail. */
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.5rem;
   width: 100%;
   padding: 0.85rem 0.9rem;
   border: 1px solid #dbe1dd;
@@ -343,10 +486,11 @@ form .message {
 }
 
 .incident-row-meta {
-  grid-template-columns: repeat(3, auto);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: end;
-  gap: 0.65rem;
+  justify-content: flex-start;
+  gap: 0.35rem 0.6rem;
 }
 
 .status-pill {
@@ -595,7 +739,8 @@ dd {
 
 .analysis-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Fills the wider main column instead of forming tall narrow columns. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
   gap: 0.75rem;
 }
 
@@ -700,19 +845,26 @@ dd {
   line-height: 1.45;
 }
 
-.recall-content,
-.recall-list {
+.recall-content {
   display: grid;
   gap: 0.75rem;
 }
 
-.agent-content,
+.recall-list,
 .agent-memory-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.agent-content {
   display: grid;
   gap: 0.75rem;
 }
 
 .agent-memory-list h4 {
+  grid-column: 1 / -1;
   margin: 0;
   color: #34473d;
   font-size: 0.78rem;
@@ -818,7 +970,7 @@ dd {
 }
 
 .recall-metadata {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
   margin-top: 0;
 }
 
@@ -1000,11 +1152,13 @@ dd {
 
 .memory-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
   gap: 0.75rem;
+  align-items: start;
 }
 
 .memory-inspector-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
 }
 
 .memory-inspector-counts {
@@ -1112,7 +1266,10 @@ dd {
 @media (max-width: 980px) {
   form,
   .workspace,
-  .memory-inspector-list {
+  .memory-inspector-list,
+  .recall-list,
+  .agent-memory-list,
+  .memory-list {
     grid-template-columns: 1fr;
   }
 
@@ -1166,6 +1323,20 @@ dd {
   .analysis-heading-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .incident-actions .primary-button,
+  .incident-actions .secondary-button {
+    width: 100%;
+  }
+
+  .detail-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .detail-tab {
+    white-space: nowrap;
   }
 
   .incident-row-meta {
