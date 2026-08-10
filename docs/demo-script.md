@@ -7,8 +7,8 @@ This script is for a short local demo before the first AWS deployment. It assume
 1. Open RecallOps and select `Demo — Checkout cache latency recurrence`.
    Say: "RecallOps starts with an incident record, then helps us analyze it and learn from it."
 
-2. Click Analyze with AI.
-   Show the summary, hypotheses, and recommended next steps. Keep the focus on operator assistance, not model internals.
+2. Click Analyze incident.
+   Say: "This is incident-only analysis. It does not use saved memories."
 
 3. Click Generate embedding preview.
    Say: "This creates a semantic fingerprint, but the raw vector stays private." Leave Advanced details closed unless asked.
@@ -19,13 +19,16 @@ This script is for a short local demo before the first AWS deployment. It assume
 5. Click Recall similar memories.
    Show the active checkout resolution and replacement procedure. Point at rank, final score, similarity, reliability, same-service indicator, and Why recalled. Say: "Similarity finds related memories; deterministic ranking orders them."
 
-6. Click Mark successful on a useful recalled memory.
+6. Click Run memory-assisted recommendation.
+   Show whether memories were used, the likely root cause, recommended next steps, memory influence notes, and the memories that influenced the recommendation. Say: "This is the bounded agent flow: RecallOps recalls active memories from CockroachDB, then asks Bedrock to reason with that context."
+
+7. Click Mark successful on a useful recalled memory.
    Show the success count and reliability update. Say: "Reliability improves as operators mark memories successful."
 
-7. Scroll to Memory Inspector.
+8. Scroll to Memory Inspector.
    Show total, active, rejected, and superseded counts. Filter by active, rejected, and superseded.
 
-8. Show the seeded lifecycle examples.
+9. Show the seeded lifecycle examples.
    Filter Memory Inspector by rejected to show the vague checkout memory. Filter by superseded to show the older checkout procedure replaced by the better active procedure. Say: "Supersede means a better memory replaces an older one. The older row is preserved but excluded from future recall."
 
 ## Seed the demo data
@@ -73,6 +76,8 @@ It also creates these memories:
 - Select `Demo — Checkout cache latency recurrence`.
 - Recall similar memories.
 - Show that active checkout memories appear.
+- Run memory-assisted recommendation.
+- Show that Bedrock uses active recalled memories, not rejected or superseded ones.
 - Open Memory Inspector and show total, active, rejected, and superseded counts.
 - Filter by rejected and show `Checkout was slow and something needed fixing.`
 - Filter by superseded and show `Restart checkout workers when cache latency appears.`
@@ -83,7 +88,7 @@ It also creates these memories:
 
 - Do not show `.env`, database URLs, AWS credentials, request IDs, account IDs, raw provider payloads, stack traces, or raw vectors.
 - Do not lead with Advanced details. Use it only if judges ask how scoring or embedding metadata is represented.
-- Do not present RecallOps as deployed, authenticated, streaming, or agentic yet. Deployment is the next milestone.
+- Do not present RecallOps as deployed, authenticated, streaming, or autonomous. The agent flow is bounded to memory recall plus recommendation; it does not execute external tools or actions.
 
 ## Cleanup notes
 

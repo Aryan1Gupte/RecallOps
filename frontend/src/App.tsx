@@ -7,11 +7,14 @@ import {
   generateEmbeddingPreview,
   getIncident,
   listIncidents,
+  runMemoryAssistedRecommendation,
+  type AgentRecalledMemory,
   type Incident,
   type IncidentAnalysis,
   type IncidentCreateInput,
   type IncidentEmbeddingPreview,
   type IncidentEnvironment,
+  type MemoryAssistedRecommendation,
 } from './api/incidents'
 import {
   createMemory,
@@ -147,6 +150,13 @@ export default function App() {
   const [analysis, setAnalysis] = useState<IncidentAnalysis | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [agentRecommendation, setAgentRecommendation] =
+    useState<MemoryAssistedRecommendation | null>(null)
+  const [agentRecommendationError, setAgentRecommendationError] = useState<
+    string | null
+  >(null)
+  const [isRunningAgentRecommendation, setIsRunningAgentRecommendation] =
+    useState(false)
   const [embeddingPreview, setEmbeddingPreview] =
     useState<IncidentEmbeddingPreview | null>(null)
   const [embeddingError, setEmbeddingError] = useState<string | null>(null)
@@ -194,6 +204,7 @@ export default function App() {
     useState<InspectorMemoryTypeFilter>('all')
   const detailRequestId = useRef(0)
   const analysisRequestId = useRef(0)
+  const agentRecommendationRequestId = useRef(0)
   const embeddingRequestId = useRef(0)
   const memoryRequestId = useRef(0)
   const saveMemoryRequestId = useRef(0)
@@ -569,6 +580,7 @@ export default function App() {
       ])
       detailRequestId.current += 1
       analysisRequestId.current += 1
+      agentRecommendationRequestId.current += 1
       embeddingRequestId.current += 1
       memoryRequestId.current += 1
       saveMemoryRequestId.current += 1
@@ -579,6 +591,9 @@ export default function App() {
       setAnalysis(null)
       setAnalysisError(null)
       setIsAnalyzing(false)
+      setAgentRecommendation(null)
+      setAgentRecommendationError(null)
+      setIsRunningAgentRecommendation(false)
       setEmbeddingPreview(null)
       setEmbeddingError(null)
       setIsEmbedding(false)
@@ -609,6 +624,7 @@ export default function App() {
     const requestId = detailRequestId.current + 1
     detailRequestId.current = requestId
     analysisRequestId.current += 1
+    agentRecommendationRequestId.current += 1
     embeddingRequestId.current += 1
     saveMemoryRequestId.current += 1
     recallRequestId.current += 1
@@ -620,6 +636,9 @@ export default function App() {
     setAnalysis(null)
     setAnalysisError(null)
     setIsAnalyzing(false)
+    setAgentRecommendation(null)
+    setAgentRecommendationError(null)
+    setIsRunningAgentRecommendation(false)
     setEmbeddingPreview(null)
     setEmbeddingError(null)
     setIsEmbedding(false)
@@ -680,6 +699,39 @@ export default function App() {
     } finally {
       if (analysisRequestId.current === requestId) {
         setIsAnalyzing(false)
+      }
+    }
+  }
+
+  async function handleMemoryAssistedRecommendation() {
+    if (!selectedIncident) {
+      return
+    }
+
+    const requestId = agentRecommendationRequestId.current + 1
+    agentRecommendationRequestId.current = requestId
+    const incidentId = selectedIncident.id
+    setIsRunningAgentRecommendation(true)
+    setAgentRecommendationError(null)
+
+    try {
+      const result = await runMemoryAssistedRecommendation(incidentId)
+      if (
+        agentRecommendationRequestId.current === requestId &&
+        isIncidentStillSelected(incidentId)
+      ) {
+        setAgentRecommendation(result)
+      }
+    } catch (error) {
+      if (
+        agentRecommendationRequestId.current === requestId &&
+        isIncidentStillSelected(incidentId)
+      ) {
+        setAgentRecommendationError(readableError(error))
+      }
+    } finally {
+      if (agentRecommendationRequestId.current === requestId) {
+        setIsRunningAgentRecommendation(false)
       }
     }
   }
@@ -1066,6 +1118,33 @@ export default function App() {
         <div>
           <dt>Same-service score</dt>
           <dd>{memory.same_service_score}</dd>
+        </div>
+      </dl>,
+    )
+  }
+
+  function renderAgentMemoryAdvancedDetails(memory: AgentRecalledMemory) {
+    return renderAdvancedDetails(
+      <dl className="advanced-metadata">
+        <div>
+          <dt>Final score</dt>
+          <dd>{formatSimilarity(memory.final_score)}</dd>
+        </div>
+        <div>
+          <dt>Similarity</dt>
+          <dd>{formatSimilarity(memory.similarity)}</dd>
+        </div>
+        <div>
+          <dt>Reliability</dt>
+          <dd>{formatSimilarity(memory.reliability)}</dd>
+        </div>
+        <div>
+          <dt>Successes</dt>
+          <dd>{memory.success_count}</dd>
+        </div>
+        <div>
+          <dt>Failures</dt>
+          <dd>{memory.failure_count}</dd>
         </div>
       </dl>,
     )
@@ -1477,7 +1556,7 @@ export default function App() {
                 <section className="analysis-section" aria-labelledby="analysis-heading">
                   <div className="analysis-heading-row">
                     <div>
-                      <p className="section-kicker">On-demand</p>
+                      <p className="section-kicker">Incident only</p>
                       <h3 id="analysis-heading">AI analysis</h3>
                     </div>
                     <button
@@ -1486,7 +1565,7 @@ export default function App() {
                       onClick={() => void handleAnalyze()}
                       disabled={isAnalyzing}
                     >
-                      {isAnalyzing ? 'Analyzing…' : 'Analyze with AI'}
+                      {isAnalyzing ? 'Analyzing…' : 'Analyze incident'}
                     </button>
                   </div>
 
@@ -1498,7 +1577,8 @@ export default function App() {
 
                   {!analysis && !analysisError && !isAnalyzing && (
                     <p className="analysis-placeholder">
-                      Generate a structured first-pass analysis for this incident.
+                      Generate a structured first-pass analysis from this
+                      incident only, without saved memory context.
                     </p>
                   )}
 
@@ -1775,6 +1855,167 @@ export default function App() {
                           </article>
                         ))}
                       </div>
+                    </div>
+                  )}
+                </section>
+
+                <section className="agent-section" aria-labelledby="agent-heading">
+                  <div className="analysis-heading-row">
+                    <div>
+                      <p className="section-kicker">Memory-assisted</p>
+                      <h3 id="agent-heading">Recommendation</h3>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void handleMemoryAssistedRecommendation()}
+                      disabled={isRunningAgentRecommendation}
+                    >
+                      {isRunningAgentRecommendation
+                        ? 'Running…'
+                        : 'Run memory-assisted recommendation'}
+                    </button>
+                  </div>
+
+                  {agentRecommendationError && (
+                    <p className="message message-error" role="alert">
+                      {agentRecommendationError}
+                    </p>
+                  )}
+
+                  {!agentRecommendation &&
+                    !agentRecommendationError &&
+                    !isRunningAgentRecommendation && (
+                      <p className="analysis-placeholder">
+                        RecallOps checks active persistent memory before asking
+                        Bedrock to recommend next steps.
+                      </p>
+                    )}
+
+                  {agentRecommendation && (
+                    <div className="agent-content">
+                      <p
+                        className={
+                          agentRecommendation.memory_used
+                            ? 'success-callout'
+                            : 'analysis-placeholder'
+                        }
+                      >
+                        {agentRecommendation.memory_used
+                          ? 'RecallOps checked persistent memory before recommending next steps.'
+                          : 'No relevant active memories were found; recommendation was generated from the incident only.'}
+                      </p>
+
+                      <div className="analysis-summary">
+                        <span className="analysis-label">Likely root cause</span>
+                        <strong>{agentRecommendation.likely_root_cause}</strong>
+                        <p>{agentRecommendation.summary}</p>
+                      </div>
+
+                      <div className="analysis-grid">
+                        <div>
+                          <h4>Memory-grounded findings</h4>
+                          <ul>
+                            {agentRecommendation.memory_grounded_findings.map(
+                              (finding) => (
+                                <li key={finding}>{finding}</li>
+                              ),
+                            )}
+                          </ul>
+                        </div>
+                        <div>
+                          <h4>Recommended next steps</h4>
+                          <ol>
+                            {agentRecommendation.recommended_next_steps.map(
+                              (step) => (
+                                <li key={step}>{step}</li>
+                              ),
+                            )}
+                          </ol>
+                        </div>
+                      </div>
+
+                      <div className="analysis-grid">
+                        <div className="analysis-cautions">
+                          <h4>Cautions</h4>
+                          <ul>
+                            {agentRecommendation.cautions.map((caution) => (
+                              <li key={caution}>{caution}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <h4>Memory influence notes</h4>
+                          <ul>
+                            {agentRecommendation.memory_influence_notes.map(
+                              (note) => (
+                                <li key={note}>{note}</li>
+                              ),
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+
+                      {agentRecommendation.recalled_memories.length > 0 && (
+                        <div className="agent-memory-list">
+                          <h4>These memories influenced the recommendation</h4>
+                          {agentRecommendation.recalled_memories.map((memory) => (
+                            <article
+                              className={`agent-memory-card memory-row-${memory.status}`}
+                              key={`${memory.rank}-${memory.summary}`}
+                            >
+                              <div className="memory-row-heading">
+                                <div className="recall-title-group">
+                                  <span className="recall-rank">
+                                    #{memory.rank}
+                                  </span>
+                                  <span className="memory-type">
+                                    {formatMemoryType(memory.memory_type)}
+                                  </span>
+                                  <span
+                                    className={`memory-status status-${memory.status}`}
+                                  >
+                                    {memory.status}
+                                  </span>
+                                </div>
+                              </div>
+                              <p>{memory.summary}</p>
+                              {memory.root_cause && (
+                                <p className="recall-detail">
+                                  <strong>Root cause:</strong>{' '}
+                                  {memory.root_cause}
+                                </p>
+                              )}
+                              {memory.resolution && (
+                                <p className="recall-detail">
+                                  <strong>Resolution:</strong>{' '}
+                                  {memory.resolution}
+                                </p>
+                              )}
+                              <div className="why-recalled-box">
+                                <span>Why this memory mattered</span>
+                                <p className="recall-explanation">
+                                  {memory.why_recalled}
+                                </p>
+                              </div>
+                              {renderAgentMemoryAdvancedDetails(memory)}
+                            </article>
+                          ))}
+                        </div>
+                      )}
+
+                      {renderAdvancedDetails(
+                        <dl className="advanced-metadata">
+                          <div>
+                            <dt>Recommendation model</dt>
+                            <dd>{agentRecommendation.model_id}</dd>
+                          </div>
+                          <div>
+                            <dt>Memories used</dt>
+                            <dd>{agentRecommendation.recalled_memory_count}</dd>
+                          </div>
+                        </dl>,
+                      )}
                     </div>
                   )}
                 </section>

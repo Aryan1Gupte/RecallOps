@@ -1,6 +1,6 @@
 # RecallOps
 
-RecallOps is an evolving AI incident-response application that helps teams investigate incidents and learn from prior outcomes. The current implementation provides CockroachDB-backed incident CRUD, an incident dashboard, on-demand initial analysis, metadata-only Titan embedding previews, and persistent long-term memories backed by CockroachDB VECTOR storage.
+RecallOps is an evolving AI incident-response application that helps teams investigate incidents and learn from prior outcomes. The current implementation provides CockroachDB-backed incident CRUD, an incident dashboard, incident-only Bedrock analysis, metadata-only Titan embedding previews, persistent long-term memories backed by CockroachDB VECTOR storage, and a bounded memory-assisted recommendation flow.
 
 ## Planned technology stack
 
@@ -12,7 +12,7 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. MCP, authentication, agent tool execution, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. AI analysis is also returned on demand and is not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. The memory-assisted recommendation endpoint runs that recall flow first, then passes the selected incident and top recalled memory metadata to Bedrock Nova for a structured recommendation. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. MCP, authentication, autonomous external actions, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. Incident-only analysis and memory-assisted recommendations are returned on demand and are not stored in the database.
 
 ## Prerequisites
 
@@ -77,13 +77,14 @@ requirements yet.
 For a short judge demo, use the incident dashboard first, then recall and memory management:
 
 1. Select or create a realistic incident such as checkout latency from stale cache.
-2. Run AI analysis to show the on-demand investigation aid.
+2. Run incident-only AI analysis to show the baseline investigation aid.
 3. Generate the semantic fingerprint preview to show that vectors stay private.
 4. Save one clear memory from the incident.
 5. Click Recall similar memories to show ranked recalled memories.
-6. Mark a recalled memory successful and point out that reliability improves future ranking.
-7. Open Memory Inspector to show active, rejected, and superseded memories.
-8. Reject a vague disposable memory or supersede an older memory with a better active replacement.
+6. Run the memory-assisted recommendation to show RecallOps recalling active memories before asking Bedrock to reason.
+7. Mark a recalled memory successful and point out that reliability improves future ranking.
+8. Open Memory Inspector to show active, rejected, and superseded memories.
+9. Reject a vague disposable memory or supersede an older memory with a better active replacement.
 
 The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include deployment, Docker, MCP, authentication, background jobs, streaming, or agent loops.
 
@@ -142,8 +143,9 @@ Set `RECALL_OPS_ENABLE_API_DOCS=false` to disable docs explicitly in any
 environment.
 
 Paid AI endpoints have a basic in-memory fixed-window rate limiter for demo
-safety. It protects incident analysis, embedding preview, memory creation, and
-memory recall because those endpoints can call Bedrock or Titan. Simple read
+safety. It protects incident analysis, embedding preview, memory creation,
+memory recall, and memory-assisted recommendation because those endpoints can
+call Bedrock or Titan. Simple read
 endpoints and health checks are not rate-limited. The defaults are
 `RECALL_OPS_ENABLE_AI_RATE_LIMIT=true`,
 `RECALL_OPS_AI_RATE_LIMIT_REQUESTS=30`, and
@@ -275,6 +277,35 @@ reliability = (success_count + 1) / (success_count + failure_count + 2)
 ```
 
 `same_service_score` is `1.0` when the memory is linked to an incident with the same service as the selected incident and `0.0` otherwise. Recall returns memory metadata, cosine distance, semantic similarity, reliability, same-service metadata, final score, rank, and `why_recalled`. The `why_recalled` explanation is deterministic and generated from the score components; it is not produced by Nova, Titan, or any LLM. Recall never returns the query vector or stored memory vectors. Superseded and rejected memories are preserved in the database but excluded from recall.
+
+Generate a memory-assisted recommendation for an incident:
+
+```bash
+curl --request POST \
+  http://127.0.0.1:8000/api/incidents/00000000-0000-0000-0000-000000000000/agent-recommendation
+```
+
+This endpoint is the bounded incident-agent flow. It loads the incident, copies
+its fields into a plain DTO, generates a Titan query embedding, recalls active
+memories from CockroachDB, ranks them deterministically, and passes only the top
+recalled memory metadata to Bedrock Nova. The prompt includes memory summaries,
+root causes, resolutions, memory type, reliability, success/failure counts,
+final score, and deterministic `why_recalled` text. It never passes raw query
+vectors, stored memory vectors, raw SQL, or arbitrary tool instructions to the
+model.
+
+The response includes a summary, whether memory was used, the count of recalled
+memories used, memory-grounded findings, likely root cause, recommended next
+steps, cautions, memory influence notes, the compact recalled memories supplied
+to the model, and the model ID. If no active memories pass the semantic gate,
+Bedrock still produces a recommendation from the incident alone and the
+response states that no relevant active memories were found.
+
+The difference from `POST /api/incidents/{incident_id}/analysis` is important:
+incident-only analysis uses only the selected incident, while
+`agent-recommendation` checks persistent CockroachDB memory first and asks
+Bedrock to reason with that bounded context. The endpoint is rate-limited and
+does not persist recommendations in this milestone.
 
 ## Memory API examples
 

@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from recallops.schemas.agent import ModelMemoryAssistedRecommendationPayload
 from recallops.schemas.analysis import IncidentAnalysisResponse
+from recallops.schemas.memory import RecalledMemoryResponse
 
 if TYPE_CHECKING:
     from recallops.models.incident import Incident
@@ -45,5 +47,26 @@ class IncidentAnalysisService(Protocol):
 
     def analyze(self, incident: IncidentAnalysisInput) -> IncidentAnalysisResponse:
         """Generate and validate an on-demand incident analysis."""
+
+        ...
+
+
+@dataclass(frozen=True)
+class MemoryAssistedRecommendationResult:
+    """Validated recommendation payload plus trusted provider metadata."""
+
+    model_id: str
+    payload: ModelMemoryAssistedRecommendationPayload
+
+
+class MemoryAssistedRecommendationService(Protocol):
+    """Contract implemented by memory-assisted recommendation providers."""
+
+    def recommend(
+        self,
+        incident: IncidentAnalysisInput,
+        memories: list[RecalledMemoryResponse],
+    ) -> MemoryAssistedRecommendationResult:
+        """Generate a recommendation grounded in bounded recalled memory context."""
 
         ...

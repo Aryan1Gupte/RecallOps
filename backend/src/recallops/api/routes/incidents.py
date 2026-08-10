@@ -10,8 +10,10 @@ from recallops.ai.bedrock import AnalysisServiceError
 from recallops.ai.dependencies import (
     EmbeddingServiceFactory,
     IncidentAnalysisServiceFactory,
+    MemoryAssistedRecommendationServiceFactory,
     get_embedding_service_factory,
     get_incident_analysis_service_factory,
+    get_memory_assisted_recommendation_service_factory,
 )
 from recallops.ai.embedding_protocols import EmbeddingError
 from recallops.ai.embedding_text import (
@@ -34,6 +36,7 @@ from recallops.repositories.memories import (
     MemoryPersistenceError,
     search_similar_active_memories,
 )
+from recallops.schemas.agent import MemoryAssistedRecommendationResponse
 from recallops.schemas.analysis import IncidentAnalysisResponse
 from recallops.schemas.embedding import IncidentEmbeddingPreviewResponse
 from recallops.schemas.incident import IncidentCreate, IncidentResponse
@@ -49,6 +52,15 @@ from recallops.services.memory_recall import (
     MemoryRecallResultValidationError,
     MemoryRecallSearcher,
     recall_similar_memories_for_incident,
+)
+from recallops.services.memory_agent import (
+    IncidentForAgentNotFoundError,
+    MemoryAgentEmbeddingConfigurationUnavailableError,
+    MemoryAgentEmbeddingUnavailableError,
+    MemoryAgentRecallUnavailableError,
+    MemoryAgentRecommendationConfigurationUnavailableError,
+    MemoryAgentRecommendationUnavailableError,
+    build_memory_assisted_recommendation,
 )
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -256,6 +268,66 @@ def recall_incident_memories_endpoint(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Memory recall is temporarily unavailable",
+        ) from None
+    except (IncidentPersistenceError, MemoryPersistenceError):
+        raise persistence_unavailable() from None
+
+
+@router.post(
+    "/{incident_id}/agent-recommendation",
+    response_model=MemoryAssistedRecommendationResponse,
+)
+def memory_assisted_recommendation_endpoint(
+    incident_id: UUID,
+    _: None = Depends(paid_ai_rate_limit),
+    session: Session = Depends(get_db),
+    embedding_service_factory: EmbeddingServiceFactory = Depends(
+        get_embedding_service_factory
+    ),
+    recommendation_service_factory: MemoryAssistedRecommendationServiceFactory = Depends(
+        get_memory_assisted_recommendation_service_factory
+    ),
+    searcher: MemoryRecallSearcher = Depends(get_memory_recall_searcher),
+) -> MemoryAssistedRecommendationResponse:
+    """Generate a bounded recommendation using recalled active memories."""
+
+    try:
+        return build_memory_assisted_recommendation(
+            session,
+            incident_id,
+            embedding_service_factory=embedding_service_factory,
+            recommendation_service_factory=recommendation_service_factory,
+            searcher=searcher,
+        )
+    except IncidentForAgentNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Incident not found",
+        ) from None
+    except MemoryAgentEmbeddingConfigurationUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory-assisted recommendation embeddings are not configured",
+        ) from None
+    except MemoryAgentRecommendationConfigurationUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory-assisted recommendation is not configured",
+        ) from None
+    except MemoryAgentEmbeddingUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Memory-assisted recommendation is temporarily unavailable",
+        ) from None
+    except MemoryAgentRecallUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Memory-assisted recommendation is temporarily unavailable",
+        ) from None
+    except MemoryAgentRecommendationUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Memory-assisted recommendation is temporarily unavailable",
         ) from None
     except (IncidentPersistenceError, MemoryPersistenceError):
         raise persistence_unavailable() from None

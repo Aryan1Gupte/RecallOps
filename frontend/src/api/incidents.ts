@@ -1,3 +1,5 @@
+import type { MemoryStatus, MemoryType } from './memories'
+
 export type IncidentStatus = 'open' | 'investigating' | 'resolved'
 
 export type IncidentEnvironment =
@@ -42,6 +44,35 @@ export interface IncidentEmbeddingPreview {
   text_preview: string
 }
 
+export interface AgentRecalledMemory {
+  rank: number
+  memory_type: MemoryType
+  status: MemoryStatus
+  summary: string
+  root_cause: string | null
+  resolution: string | null
+  success_count: number
+  failure_count: number
+  similarity: number
+  reliability: number
+  final_score: number
+  why_recalled: string
+}
+
+export interface MemoryAssistedRecommendation {
+  incident_id: string
+  summary: string
+  memory_used: boolean
+  recalled_memory_count: number
+  memory_grounded_findings: string[]
+  likely_root_cause: string
+  recommended_next_steps: string[]
+  cautions: string[]
+  memory_influence_notes: string[]
+  recalled_memories: AgentRecalledMemory[]
+  model_id: string
+}
+
 const API_BASE_PATH = '/api'
 
 class IncidentApiError extends Error {
@@ -63,6 +94,9 @@ function messageForStatus(status: number): string {
   }
   if (status === 503) {
     return 'RecallOps is temporarily unavailable. Please try again shortly.'
+  }
+  if (status === 429) {
+    return 'RecallOps is limiting paid AI requests for demo safety. Please try again shortly.'
   }
   return 'RecallOps could not complete the request. Please try again.'
 }
@@ -119,6 +153,15 @@ export function generateEmbeddingPreview(
 ): Promise<IncidentEmbeddingPreview> {
   return request<IncidentEmbeddingPreview>(
     `/incidents/${encodeURIComponent(id)}/embedding-preview`,
+    { method: 'POST' },
+  )
+}
+
+export function runMemoryAssistedRecommendation(
+  id: string,
+): Promise<MemoryAssistedRecommendation> {
+  return request<MemoryAssistedRecommendation>(
+    `/incidents/${encodeURIComponent(id)}/agent-recommendation`,
     { method: 'POST' },
   )
 }
