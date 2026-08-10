@@ -31,6 +31,9 @@ This script is for a short local demo before the first AWS deployment. It assume
 9. Show the seeded lifecycle examples.
    Filter Memory Inspector by rejected to show the vague checkout memory. Filter by superseded to show the older checkout procedure replaced by the better active procedure. Say: "Supersede means a better memory replaces an older one. The older row is preserved but excluded from future recall."
 
+10. Switch to the MCP Memory Analyst for 20-30 seconds.
+    Say: "Now I will ask the CockroachDB Cloud Managed MCP Server to inspect the same persistent memory layer from outside the app." Ask for memory counts by status or the checkout supersession chain. Emphasize that this is read-only and does not expose raw vectors.
+
 ## Seed the demo data
 
 Run a dry-run first:
@@ -78,6 +81,8 @@ It also creates these memories:
 - Show that active checkout memories appear.
 - Run memory-assisted recommendation.
 - Show that Bedrock uses active recalled memories, not rejected or superseded ones.
+- Switch to the MCP Memory Analyst and ask it to inspect memory health by status.
+- Ask the MCP Memory Analyst to show the checkout supersession chain.
 - Open Memory Inspector and show total, active, rejected, and superseded counts.
 - Filter by rejected and show `Checkout was slow and something needed fixing.`
 - Filter by superseded and show `Restart checkout workers when cache latency appears.`
@@ -87,8 +92,22 @@ It also creates these memories:
 ## What to avoid showing
 
 - Do not show `.env`, database URLs, AWS credentials, request IDs, account IDs, raw provider payloads, stack traces, or raw vectors.
+- Do not show real MCP client config, API keys, bearer tokens, cluster IDs, database passwords, or copied Cloud Console snippets.
+- Do not ask MCP to insert, update, delete, alter schema, modify cluster settings, or mutate RecallOps memories during the demo.
 - Do not lead with Advanced details. Use it only if judges ask how scoring or embedding metadata is represented.
 - Do not present RecallOps as deployed, authenticated, streaming, or autonomous. The agent flow is bounded to memory recall plus recommendation; it does not execute external tools or actions.
+
+## MCP Memory Analyst prompts
+
+Use [mcp-memory-analyst.md](mcp-memory-analyst.md) for setup safety and prompt details. The shortest demo prompts are:
+
+```text
+Using the RecallOps CockroachDB database through MCP, summarize memory health by status. Count active, rejected, and superseded memories. Do not show raw vectors. Do not mutate data.
+```
+
+```text
+Show the supersession chain for checkout-related demo memories. Identify the old memory, the replacement memory, and the supersession reason. Do not mutate data.
+```
 
 ## Cleanup notes
 

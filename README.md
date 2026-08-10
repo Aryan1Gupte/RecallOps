@@ -12,7 +12,16 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Managed MCP Server for read-only memory inspection
 - AWS App Runner for deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. The memory-assisted recommendation endpoint runs that recall flow first, then passes the selected incident and top recalled memory metadata to Bedrock Nova for a structured recommendation. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. MCP, authentication, autonomous external actions, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. Incident-only analysis and memory-assisted recommendations are returned on demand and are not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. The memory-assisted recommendation endpoint runs that recall flow first, then passes the selected incident and top recalled memory metadata to Bedrock Nova for a structured recommendation. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. A read-only CockroachDB Cloud Managed MCP Server analyst workflow is documented for inspecting the memory layer from outside the app. MCP is not integrated into the web app runtime, and authentication, autonomous external actions, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. Incident-only analysis and memory-assisted recommendations are returned on demand and are not stored in the database.
+
+## CockroachDB Tools Used
+
+RecallOps uses two CockroachDB capabilities in complementary ways:
+
+1. **CockroachDB Distributed Vector Indexing** is inside the application request path. Memory creation stores Titan Embeddings V2 outputs privately as `VECTOR(1024)`, and semantic recall searches active memories with CockroachDB cosine distance before deterministic ranking.
+2. **CockroachDB Cloud Managed MCP Server** is outside the web app. The documented Memory Analyst workflow lets a local MCP client inspect memory health, lifecycle state, reliability counts, supersession chains, and demo coverage with read-only metadata queries.
+
+The MCP analyst workflow is documented in [docs/mcp-memory-analyst.md](docs/mcp-memory-analyst.md). It should use read-only access, placeholder-only local setup docs, and prompts that avoid raw vectors and mutations.
 
 ## Prerequisites
 
@@ -85,8 +94,9 @@ For a short judge demo, use the incident dashboard first, then recall and memory
 7. Mark a recalled memory successful and point out that reliability improves future ranking.
 8. Open Memory Inspector to show active, rejected, and superseded memories.
 9. Reject a vague disposable memory or supersede an older memory with a better active replacement.
+10. Optionally switch to the MCP Memory Analyst to inspect the same CockroachDB memory layer from outside the app.
 
-The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include deployment, Docker, MCP, authentication, background jobs, streaming, or agent loops.
+The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include deployment, Docker, MCP integration inside the web app, authentication, background jobs, streaming, or autonomous agent loops.
 
 ## Demo seed data
 
