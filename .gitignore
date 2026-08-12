@@ -22,3 +22,6 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+.cursor/
+.claude/
+.claude.json

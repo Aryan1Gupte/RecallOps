@@ -1,0 +1,40 @@
+# Git and local environment
+.git
+.gitignore
+.env
+.env.*
+
+# Python local state
+backend/.venv
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Node and Vite local state
+node_modules
+frontend/node_modules
+frontend/dist
+dist
+*.local
+
+# Editors, MCP client configs, and local OS files
+.DS_Store
+.idea
+.vscode
+.cursor
+.claude
+.claude.json
+
+# Local logs, secrets, and screenshots
+*.log
+logs
+secrets
+*.pem
+*.key
+*.crt
+screenshots

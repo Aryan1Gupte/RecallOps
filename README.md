@@ -96,7 +96,68 @@ For a short judge demo, use the incident dashboard first, then recall and memory
 9. Reject a vague disposable memory or supersede an older memory with a better active replacement.
 10. Optionally switch to the MCP Memory Analyst to inspect the same CockroachDB memory layer from outside the app.
 
-The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include deployment, Docker, MCP integration inside the web app, authentication, background jobs, streaming, or autonomous agent loops.
+The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include AWS deployment, MCP integration inside the web app, authentication, background jobs, streaming, or autonomous agent loops.
+
+## Docker packaging
+
+RecallOps can be built as one local production-style container. The Docker build
+compiles the Vite frontend, installs the FastAPI backend into a Python 3.12
+runtime image, copies the built frontend to `/app/frontend/dist`, and serves the
+React app and `/api` routes from the same origin.
+
+Build the image from the repository root:
+
+```bash
+docker build -t recallops:local .
+```
+
+Run it with runtime configuration from the ignored local `.env` file:
+
+```bash
+docker run --rm -p 8000:8000 --env-file .env recallops:local
+```
+
+The image sets these production-oriented defaults:
+
+```text
+APP_ENV=production
+RECALL_OPS_FRONTEND_DIST=/app/frontend/dist
+RECALL_OPS_ENABLE_API_DOCS=false
+PORT=8000
+```
+
+Do not bake `.env`, `DATABASE_URL`, AWS credentials, MCP client config, or any
+secret into the image. Pass configuration at runtime with environment variables.
+The required runtime settings for full functionality are `DATABASE_URL`,
+`AWS_REGION`, `BEDROCK_CHAT_MODEL_ID`, and `BEDROCK_EMBEDDING_MODEL_ID`.
+
+For local Bedrock/Titan smoke testing only, mount an existing AWS config
+read-only instead of copying credentials into the image:
+
+```bash
+docker run --rm -p 8000:8000 \
+  --env-file .env \
+  -v "$HOME/.aws:/root/.aws:ro" \
+  recallops:local
+```
+
+AWS App Runner should use runtime environment variables and IAM role-based
+access where possible, not baked credentials.
+
+Smoke checks:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/health/database
+curl -i http://127.0.0.1:8000/docs
+```
+
+Then open `http://127.0.0.1:8000` and confirm the React app loads. `/api` routes
+should remain API routes, and `/docs`, `/redoc`, and `/openapi.json` should be
+disabled when `RECALL_OPS_ENABLE_API_DOCS=false`. If AWS credentials are not
+available inside the container, health, database, and static UI checks can still
+work, while Bedrock/Titan endpoints return safe configuration or provider
+errors until credentials are supplied safely.
 
 ## Demo seed data
 
