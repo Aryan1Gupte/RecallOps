@@ -24,14 +24,18 @@ class FixedWindowRateLimiter:
         *,
         max_requests: int,
         window_seconds: int,
+        max_buckets: int = 4096,
         clock: Callable[[], float] = monotonic,
     ) -> None:
         if max_requests < 1:
             raise ValueError("max_requests must be at least 1")
         if window_seconds < 1:
             raise ValueError("window_seconds must be at least 1")
+        if max_buckets < 1:
+            raise ValueError("max_buckets must be at least 1")
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        self.max_buckets = max_buckets
         self._clock = clock
         self._lock = Lock()
         self._windows: dict[str, _ClientWindow] = {}
@@ -39,8 +43,10 @@ class FixedWindowRateLimiter:
     def allow(self, identifier: str) -> bool:
         now = self._clock()
         with self._lock:
+            self._evict_expired(now)
             window = self._windows.get(identifier)
             if window is None or now - window.started_at >= self.window_seconds:
+                self._evict_oldest_if_full()
                 self._windows[identifier] = _ClientWindow(started_at=now, count=1)
                 return True
 
@@ -50,9 +56,32 @@ class FixedWindowRateLimiter:
             window.count += 1
             return True
 
+    @property
+    def bucket_count(self) -> int:
+        with self._lock:
+            return len(self._windows)
+
     def reset(self) -> None:
         with self._lock:
             self._windows = {}
+
+    def _evict_expired(self, now: float) -> None:
+        expired_identifiers = [
+            identifier
+            for identifier, window in self._windows.items()
+            if now - window.started_at >= self.window_seconds
+        ]
+        for identifier in expired_identifiers:
+            del self._windows[identifier]
+
+    def _evict_oldest_if_full(self) -> None:
+        if len(self._windows) < self.max_buckets:
+            return
+        oldest_identifier = min(
+            self._windows,
+            key=lambda identifier: self._windows[identifier].started_at,
+        )
+        del self._windows[oldest_identifier]
 
 
 _limiters_by_config: dict[tuple[int, int], FixedWindowRateLimiter] = {}
@@ -70,7 +99,12 @@ def paid_ai_rate_limit(request: Request) -> None:
         settings.ai_rate_limit_requests,
         settings.ai_rate_limit_window_seconds,
     )
-    if limiter.allow(_client_identifier(request)):
+    if limiter.allow(
+        _client_identifier(
+            request,
+            trust_proxy_headers=settings.trust_proxy_headers,
+        )
+    ):
         return
 
     raise HTTPException(
@@ -97,9 +131,13 @@ def _limiter_for(max_requests: int, window_seconds: int) -> FixedWindowRateLimit
         return limiter
 
 
-def _client_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for is not None:
+def _client_identifier(request: Request, *, trust_proxy_headers: bool) -> str:
+    if trust_proxy_headers:
+        forwarded_for = request.headers.get("x-forwarded-for")
+    else:
+        forwarded_for = None
+
+    if forwarded_for:
         first_hop = forwarded_for.split(",", 1)[0].strip()
         if first_hop:
             return first_hop

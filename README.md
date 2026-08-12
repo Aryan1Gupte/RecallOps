@@ -130,19 +130,49 @@ Do not bake `.env`, `DATABASE_URL`, AWS credentials, MCP client config, or any
 secret into the image. Pass configuration at runtime with environment variables.
 The required runtime settings for full functionality are `DATABASE_URL`,
 `AWS_REGION`, `BEDROCK_CHAT_MODEL_ID`, and `BEDROCK_EMBEDDING_MODEL_ID`.
+Do not add `PORT` as a custom App Runner environment variable; configure the
+service/container port as `8000` and let the image default handle local Docker.
 
 For local Bedrock/Titan smoke testing only, mount an existing AWS config
 read-only instead of copying credentials into the image:
 
 ```bash
-docker run --rm -p 8000:8000 \
+docker run --rm -p 8010:8000 \
   --env-file .env \
-  -v "$HOME/.aws:/root/.aws:ro" \
+  -v "$HOME/.postgresql:/root/.postgresql:ro" \
+  -v "$HOME/.aws:/root/.aws" \
   recallops:local
 ```
 
 AWS App Runner should use runtime environment variables and IAM role-based
 access where possible, not baked credentials.
+
+Before deploying a new image, run migrations manually. RecallOps intentionally
+does not run Alembic in the Docker `CMD` or during FastAPI startup:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+For AWS App Runner, store `DATABASE_URL` in Secrets Manager or SSM Parameter
+Store rather than plain-text service configuration. The App Runner instance role
+needs permission to call the configured Bedrock/Nova and Titan models, such as
+`bedrock:InvokeModel` for the selected model resources. A separate App Runner
+ECR access role is needed when the image lives in a private ECR repository.
+Keep public-demo rate limiting enabled with:
+
+```text
+RECALL_OPS_ENABLE_AI_RATE_LIMIT=true
+RECALL_OPS_AI_RATE_LIMIT_REQUESTS=10
+RECALL_OPS_AI_RATE_LIMIT_WINDOW_SECONDS=60
+RECALL_OPS_TRUST_PROXY_HEADERS=false
+```
+
+`RECALL_OPS_TRUST_PROXY_HEADERS=false` is the safe default. Only enable trusted
+proxy headers when the deployment sits behind a controlled proxy that overwrites
+client IP headers; otherwise user-supplied `X-Forwarded-For` values can spoof
+client identity.
 
 Smoke checks:
 
@@ -219,14 +249,17 @@ memory recall, and memory-assisted recommendation because those endpoints can
 call Bedrock or Titan. Simple read
 endpoints and health checks are not rate-limited. The defaults are
 `RECALL_OPS_ENABLE_AI_RATE_LIMIT=true`,
-`RECALL_OPS_AI_RATE_LIMIT_REQUESTS=30`, and
+`RECALL_OPS_AI_RATE_LIMIT_REQUESTS=10`, and
 `RECALL_OPS_AI_RATE_LIMIT_WINDOW_SECONDS=60`. The limiter is process-local and
 intended for the hackathon deployment path, not as a substitute for a managed
 edge or API-gateway limiter.
 
 ## Database migrations
 
-Alembic owns database schema changes. From the repository root, apply all migrations while loading the ignored local `.env` file without placing the connection URL in `alembic.ini`:
+Alembic owns database schema changes. Migrations are a manual pre-deployment
+step and are not run by the Docker image or application startup. From the
+repository root, apply all migrations while loading the ignored local `.env`
+file without placing the connection URL in `alembic.ini`:
 
 ```bash
 backend/.venv/bin/python -m dotenv -f .env run -- \
@@ -240,7 +273,7 @@ backend/.venv/bin/python -m dotenv -f .env run -- \
   backend/.venv/bin/alembic -c backend/alembic.ini current
 ```
 
-API tests use isolated in-memory SQLite through FastAPI dependency overrides. They never read, modify, or depend on the real CockroachDB Cloud database. The Alembic migration and database-health endpoint validate real CockroachDB compatibility separately. To explicitly exercise the CockroachDB memory insert path with a fake vector and no Bedrock call, run:
+API tests use isolated in-memory SQLite through FastAPI dependency overrides. They never read, modify, or depend on the real CockroachDB Cloud database. The Alembic migration and database-health endpoint validate real CockroachDB compatibility separately. `/api/health/database` checks database reachability and verifies that `alembic_version`, `incidents`, and `memories` exist; a missing table returns a sanitized unavailable response. To explicitly exercise the CockroachDB memory insert path with a fake vector and no Bedrock call, run:
 
 ```bash
 RECALLOPS_RUN_COCKROACH_INTEGRATION=1 \

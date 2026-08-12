@@ -53,6 +53,38 @@ def test_fixed_window_rate_limiter_resets_after_window() -> None:
     assert limiter.allow("client-a") is True
 
 
+def test_fixed_window_rate_limiter_evicts_stale_buckets() -> None:
+    now = 0.0
+    limiter = FixedWindowRateLimiter(
+        max_requests=1,
+        window_seconds=10,
+        clock=lambda: now,
+    )
+
+    assert limiter.allow("client-a") is True
+    assert limiter.allow("client-b") is True
+    assert limiter.bucket_count == 2
+
+    now = 10.0
+    assert limiter.allow("client-c") is True
+    assert limiter.bucket_count == 1
+
+
+def test_fixed_window_rate_limiter_bounds_bucket_count() -> None:
+    limiter = FixedWindowRateLimiter(
+        max_requests=1,
+        window_seconds=60,
+        max_buckets=2,
+        clock=lambda: 0.0,
+    )
+
+    assert limiter.allow("client-a") is True
+    assert limiter.allow("client-b") is True
+    assert limiter.allow("client-c") is True
+
+    assert limiter.bucket_count == 2
+
+
 def test_paid_ai_endpoint_rate_limited_and_health_is_not(
     client: TestClient,
     monkeypatch,
@@ -77,3 +109,31 @@ def test_paid_ai_endpoint_rate_limited_and_health_is_not(
         "detail": "AI request rate limit exceeded. Please try again shortly."
     }
     assert health_response.status_code == 200
+
+
+def test_spoofed_forwarded_for_does_not_bypass_limiter_by_default(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("RECALL_OPS_ENABLE_AI_RATE_LIMIT", "true")
+    monkeypatch.setenv("RECALL_OPS_AI_RATE_LIMIT_REQUESTS", "1")
+    monkeypatch.setenv("RECALL_OPS_AI_RATE_LIMIT_WINDOW_SECONDS", "60")
+    monkeypatch.delenv("RECALL_OPS_TRUST_PROXY_HEADERS", raising=False)
+    get_settings.cache_clear()
+    reset_ai_rate_limiter_for_tests()
+    incident = create_test_incident(client)
+    app.dependency_overrides[get_incident_analysis_service_factory] = (
+        lambda: lambda: FakeAnalysisService()
+    )
+
+    first_response = client.post(
+        f"/api/incidents/{incident['id']}/analysis",
+        headers={"x-forwarded-for": "198.51.100.10"},
+    )
+    spoofed_response = client.post(
+        f"/api/incidents/{incident['id']}/analysis",
+        headers={"x-forwarded-for": "198.51.100.11"},
+    )
+
+    assert first_response.status_code == 200
+    assert spoofed_response.status_code == 429

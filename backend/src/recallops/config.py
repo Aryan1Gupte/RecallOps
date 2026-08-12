@@ -21,6 +21,7 @@ class Settings:
     enable_ai_rate_limit: bool
     ai_rate_limit_requests: int
     ai_rate_limit_window_seconds: int
+    trust_proxy_headers: bool
 
     def require_database_url(self) -> str:
         """Return the database URL only when database functionality needs it."""
@@ -125,13 +126,17 @@ def get_settings() -> Settings:
         ),
         ai_rate_limit_requests=_env_int(
             "RECALL_OPS_AI_RATE_LIMIT_REQUESTS",
-            default=30,
+            default=10,
             minimum=1,
         ),
         ai_rate_limit_window_seconds=_env_int(
             "RECALL_OPS_AI_RATE_LIMIT_WINDOW_SECONDS",
             default=60,
             minimum=1,
+        ),
+        trust_proxy_headers=_env_bool(
+            "RECALL_OPS_TRUST_PROXY_HEADERS",
+            default=False,
         ),
     )
 

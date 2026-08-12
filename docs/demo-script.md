@@ -109,6 +109,11 @@ Using the RecallOps CockroachDB database through MCP, summarize memory health by
 Show the supersession chain for checkout-related demo memories. Identify the old memory, the replacement memory, and the supersession reason. Do not mutate data.
 ```
 
+A sanitized sample transcript is available in
+[mcp-demo-transcript.example.md](mcp-demo-transcript.example.md). It is a demo
+shape only and intentionally excludes cluster IDs, tokens, database passwords,
+raw vectors, and real Cloud Console snippets.
+
 ## Cleanup notes
 
 Do not wipe existing data. The seed script intentionally has no reset flag. Demo incidents are clearly marked with `Demo —`; demo memories are linked to demo incidents. If cleanup is needed, review targeted manual cleanup carefully outside the demo. Memory deletion is intentionally not implemented in the app.

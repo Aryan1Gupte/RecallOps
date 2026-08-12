@@ -22,6 +22,7 @@ def make_settings(
         enable_ai_rate_limit=True,
         ai_rate_limit_requests=30,
         ai_rate_limit_window_seconds=60,
+        trust_proxy_headers=False,
     )
 
 

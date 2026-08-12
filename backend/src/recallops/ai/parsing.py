@@ -52,7 +52,7 @@ def parse_memory_assisted_recommendation_payload(
 
 
 def _loads_json_object_from_model_text(raw_text: str) -> object:
-    """Load one JSON object, tolerating fences or harmless surrounding text."""
+    """Load exactly one JSON object, tolerating fences or harmless text."""
 
     stripped = raw_text.strip()
     if not stripped:
@@ -62,7 +62,7 @@ def _loads_json_object_from_model_text(raw_text: str) -> object:
     try:
         return json.loads(candidate)
     except json.JSONDecodeError:
-        object_text = _extract_first_json_object(candidate)
+        object_text = _extract_single_json_object(candidate)
         if object_text is None:
             raise json.JSONDecodeError("no JSON object found", raw_text, 0) from None
         return json.loads(object_text)
@@ -73,7 +73,10 @@ def _strip_markdown_fence(text: str) -> str:
     if len(lines) >= 2 and lines[0].strip().startswith("```"):
         closing_line_index = _first_closing_fence_index(lines[1:])
         if closing_line_index is not None:
-            return "\n".join(lines[1:closing_line_index]).strip()
+            trailing_text = "\n".join(lines[closing_line_index + 1 :]).strip()
+            fenced_text = "\n".join(lines[1:closing_line_index]).strip()
+            if "{" not in trailing_text and "}" not in trailing_text:
+                return fenced_text
     return text
 
 
@@ -84,15 +87,32 @@ def _first_closing_fence_index(lines_after_opening: Iterable[str]) -> int | None
     return None
 
 
-def _extract_first_json_object(text: str) -> str | None:
-    start = text.find("{")
-    if start < 0:
+def _extract_single_json_object(text: str) -> str | None:
+    spans = _json_object_spans(text)
+    if len(spans) != 1:
         return None
 
+    start, end = spans[0]
+    outside_text = text[:start] + text[end:]
+    if "{" in outside_text or "}" in outside_text:
+        return None
+    return text[start:end]
+
+
+def _json_object_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    start: int | None = None
     depth = 0
     in_string = False
     escaped = False
-    for index, char in enumerate(text[start:], start=start):
+
+    for index, char in enumerate(text):
+        if depth == 0:
+            if char == "{":
+                start = index
+                depth = 1
+            continue
+
         if in_string:
             if escaped:
                 escaped = False
@@ -109,11 +129,11 @@ def _extract_first_json_object(text: str) -> str | None:
         elif char == "}":
             depth -= 1
             if depth == 0:
-                return text[start : index + 1]
-            if depth < 0:
-                return None
+                if start is not None:
+                    spans.append((start, index + 1))
+                start = None
 
-    return None
+    return spans
 
 
 def _validation_error_reason(error: ValidationError) -> str:

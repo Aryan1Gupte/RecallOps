@@ -21,3 +21,16 @@ def test_public_api_docs_can_be_explicitly_enabled(monkeypatch) -> None:
         assert get_settings().enable_api_docs is True
     finally:
         get_settings.cache_clear()
+
+
+def test_demo_rate_limit_defaults_and_proxy_header_safety(monkeypatch) -> None:
+    monkeypatch.delenv("RECALL_OPS_AI_RATE_LIMIT_REQUESTS", raising=False)
+    monkeypatch.delenv("RECALL_OPS_TRUST_PROXY_HEADERS", raising=False)
+    get_settings.cache_clear()
+
+    try:
+        settings = get_settings()
+        assert settings.ai_rate_limit_requests == 10
+        assert settings.trust_proxy_headers is False
+    finally:
+        get_settings.cache_clear()
