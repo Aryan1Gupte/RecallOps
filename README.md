@@ -132,20 +132,28 @@ The required runtime settings for full functionality are `DATABASE_URL`,
 `AWS_REGION`, `BEDROCK_CHAT_MODEL_ID`, and `BEDROCK_EMBEDDING_MODEL_ID`.
 Do not add `PORT` as a custom App Runner environment variable; configure the
 service/container port as `8000` and let the image default handle local Docker.
+The image includes the public CockroachDB CA certificate at
+`/root/.postgresql/root.crt` so `sslmode=verify-full` works in App Runner and
+local Docker without mounting the developer machine's `~/.postgresql`
+directory. Do not add database passwords, `DATABASE_URL`, AWS credentials, or
+private keys to the image or repository.
 
-For local Bedrock/Titan smoke testing only, mount an existing AWS config
-read-only instead of copying credentials into the image:
+For local Bedrock/Titan smoke testing only, mount an existing AWS config instead
+of copying credentials into the image. AWS SSO credential refresh may need to
+write to the local cache, so use a read-only mount only when your credential
+method supports it:
 
 ```bash
 docker run --rm -p 8010:8000 \
   --env-file .env \
-  -v "$HOME/.postgresql:/root/.postgresql:ro" \
   -v "$HOME/.aws:/root/.aws" \
   recallops:local
 ```
 
 AWS App Runner should use runtime environment variables and IAM role-based
-access where possible, not baked credentials.
+access where possible, not baked credentials. The `~/.aws` mount above is only
+for local smoke tests; App Runner should use its instance role for Bedrock/Titan
+access.
 
 Before deploying a new image, run migrations manually. RecallOps intentionally
 does not run Alembic in the Docker `CMD` or during FastAPI startup:

@@ -26,6 +26,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p /root/.postgresql \
+    && chmod 0755 /root/.postgresql
+COPY deploy/certs/cockroach-root.crt /root/.postgresql/root.crt
+RUN chmod 0644 /root/.postgresql/root.crt
+
 COPY backend/pyproject.toml ./backend/pyproject.toml
 COPY backend/src ./backend/src
 COPY backend/alembic.ini ./backend/alembic.ini

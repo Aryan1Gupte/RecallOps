@@ -37,4 +37,5 @@ secrets
 *.pem
 *.key
 *.crt
+!deploy/certs/cockroach-root.crt
 screenshots
