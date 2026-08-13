@@ -1,8 +1,8 @@
 # RecallOps
 
-RecallOps is an evolving AI incident-response application that helps teams investigate incidents and learn from prior outcomes. The current implementation provides CockroachDB-backed incident CRUD, an incident dashboard, incident-only Bedrock analysis, metadata-only Titan embedding previews, persistent long-term memories backed by CockroachDB VECTOR storage, and a bounded memory-assisted recommendation flow.
+RecallOps is an AI incident-response application that helps teams investigate incidents and learn from prior outcomes. It provides CockroachDB-backed incident CRUD, an incident dashboard, incident-only Bedrock analysis, metadata-only Titan embedding previews, persistent long-term memories backed by CockroachDB VECTOR storage, and a bounded memory-assisted recommendation flow.
 
-## Planned technology stack
+## Current technology stack
 
 - React, TypeScript, and Vite for the frontend
 - Python and FastAPI for the backend
@@ -10,9 +10,9 @@ RecallOps is an evolving AI incident-response application that helps teams inves
 - CockroachDB Cloud for implemented incident and memory persistence
 - CockroachDB Distributed Vector Indexing for persisted memory embeddings
 - CockroachDB Managed MCP Server for read-only memory inspection
-- AWS App Runner for deployment
+- AWS ECS Express Mode for the public demo deployment
 
-Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. The memory-assisted recommendation endpoint runs that recall flow first, then passes the selected incident and top recalled memory metadata to Bedrock Nova for a structured recommendation. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. A read-only CockroachDB Cloud Managed MCP Server analyst workflow is documented for inspecting the memory layer from outside the app. MCP is not integrated into the web app runtime, and authentication, autonomous external actions, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment integrations are not implemented yet. Incident-only analysis and memory-assisted recommendations are returned on demand and are not stored in the database.
+Incident preview embeddings are generated on demand but are not persisted. Saved memories generate Titan Text Embeddings V2 vectors and store them in CockroachDB as `VECTOR(1024)` with a CockroachDB vector index. Semantic memory recall can retrieve active memories for a selected incident using CockroachDB cosine distance and then order gated candidates with deterministic ranking. The memory-assisted recommendation endpoint runs that recall flow first, then passes the selected incident and top recalled memory metadata to Bedrock Nova for a structured recommendation. Memory feedback controls can increment success and failure counts for active memories so future rankings can use updated reliability. Manual lifecycle controls can reject memories or supersede old memories with active replacements while preserving the original rows. The frontend also includes a Memory Inspector for reviewing saved memories, filtering by lifecycle state/type, and managing active memories without copying raw UUIDs. A repeatable demo seed script exists for judge data. A read-only CockroachDB Cloud Managed MCP Server analyst workflow is documented for inspecting the memory layer from outside the app. MCP is not integrated into the web app runtime, and authentication, autonomous external actions, background jobs, streaming, memory deletion, automatic stale-memory cleanup, and deployment automation beyond the documented ECS Express runbook are outside the current MVP. Incident-only analysis and memory-assisted recommendations are returned on demand and are not stored in the database.
 
 ## CockroachDB Tools Used
 
@@ -70,7 +70,7 @@ cd frontend
 npm run build
 ```
 
-For the pre-deployment path, RecallOps expects same-origin serving: when a
+For the production deployment path, RecallOps expects same-origin serving: when a
 built Vite frontend artifact exists, the FastAPI app serves it while keeping
 API routes under `/api`. By default the backend looks for the repository-local
 `frontend/dist`; deployment can set `RECALL_OPS_FRONTEND_DIST` to an explicit
@@ -81,7 +81,7 @@ mounted. Local Vite development still uses the Vite proxy, so the frontend API
 clients can keep the relative `/api` base path without adding deployment CORS
 requirements yet.
 
-## Demo flow
+## Suggested judge demo flow
 
 For a short judge demo, use the incident dashboard first, then recall and memory management:
 
@@ -96,7 +96,7 @@ For a short judge demo, use the incident dashboard first, then recall and memory
 9. Reject a vague disposable memory or supersede an older memory with a better active replacement.
 10. Optionally switch to the MCP Memory Analyst to inspect the same CockroachDB memory layer from outside the app.
 
-The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. AWS deployment is the next planned milestone; this repo does not yet include AWS deployment, MCP integration inside the web app, authentication, background jobs, streaming, or autonomous agent loops.
+The main cards are judge-facing and hide implementation details by default. Use **Advanced details** only when you need to show model IDs, embedding dimensions, cosine distance, ranking formula, timestamps, or UUIDs. Raw vectors are never shown. A public AWS ECS Express demo deployment is documented below; this repo still does not include MCP integration inside the web app, authentication, background jobs, streaming, or autonomous agent loops.
 
 ## Docker packaging
 
@@ -130,10 +130,10 @@ Do not bake `.env`, `DATABASE_URL`, AWS credentials, MCP client config, or any
 secret into the image. Pass configuration at runtime with environment variables.
 The required runtime settings for full functionality are `DATABASE_URL`,
 `AWS_REGION`, `BEDROCK_CHAT_MODEL_ID`, and `BEDROCK_EMBEDDING_MODEL_ID`.
-Do not add `PORT` as a custom App Runner environment variable; configure the
-service/container port as `8000` and let the image default handle local Docker.
+For ECS Express, configure the service/container port as `8000` and let the
+image default handle local Docker.
 The image includes the public CockroachDB CA certificate at
-`/root/.postgresql/root.crt` so `sslmode=verify-full` works in App Runner and
+`/root/.postgresql/root.crt` so `sslmode=verify-full` works in ECS Express and
 local Docker without mounting the developer machine's `~/.postgresql`
 directory. Do not add database passwords, `DATABASE_URL`, AWS credentials, or
 private keys to the image or repository.
@@ -150,10 +150,9 @@ docker run --rm -p 8010:8000 \
   recallops:local
 ```
 
-AWS App Runner should use runtime environment variables and IAM role-based
+AWS ECS Express should use runtime environment variables and IAM role-based
 access where possible, not baked credentials. The `~/.aws` mount above is only
-for local smoke tests; App Runner should use its instance role for Bedrock/Titan
-access.
+for local smoke tests; ECS should use its task role for Bedrock/Titan access.
 
 Before deploying a new image, run migrations manually. RecallOps intentionally
 does not run Alembic in the Docker `CMD` or during FastAPI startup:
@@ -163,11 +162,19 @@ cd backend
 alembic upgrade head
 ```
 
-For AWS App Runner, store `DATABASE_URL` in Secrets Manager or SSM Parameter
-Store rather than plain-text service configuration. The App Runner instance role
-needs permission to call the configured Bedrock/Nova and Titan models, such as
-`bedrock:InvokeModel` for the selected model resources. A separate App Runner
-ECR access role is needed when the image lives in a private ECR repository.
+For the public AWS demo, App Runner was not used because new App Runner customer
+onboarding was unavailable for this AWS account. The deployed path is Docker
+image -> ECR -> ECS Express public service -> CockroachDB Cloud + Bedrock. The
+current deployment is documented in
+[docs/deployment-ecs-express.md](docs/deployment-ecs-express.md).
+
+For ECS Express, store `DATABASE_URL` in SSM Parameter Store as a SecureString
+or in Secrets Manager rather than plain-text service configuration. The current
+deployment uses SSM Parameter Store at `/recallops/prod/DATABASE_URL`. The ECS
+task role needs permission to call the configured Bedrock/Nova and Titan models,
+such as `bedrock:InvokeModel` for the selected model resources. The task
+execution and infrastructure roles must be able to pull the private ECR image
+and operate the managed ECS Express service resources.
 Keep public-demo rate limiting enabled with:
 
 ```text
@@ -197,9 +204,38 @@ available inside the container, health, database, and static UI checks can still
 work, while Bedrock/Titan endpoints return safe configuration or provider
 errors until credentials are supplied safely.
 
+## AWS ECS Express deployment
+
+The public demo is deployed on AWS ECS Express Mode in `us-east-1`:
+
+```text
+https://re-13632ec1844d486cbc3ab2f88ac2b387.ecs.us-east-1.on.aws
+```
+
+App Runner was not used because new App Runner customer onboarding was
+unavailable for this AWS account. The deployed architecture is Docker image ->
+ECR -> ECS Express public service -> CockroachDB Cloud + Bedrock. Local AWS CLI
+commands created and updated AWS resources remotely; the public app is running
+inside ECS, not from the developer laptop.
+
+Current deployment metadata:
+
+```text
+Region: us-east-1
+ECS cluster: default
+ECS Express service: recallops-demo
+ECR repository: recallops
+ECR image tag: m18-659fd0c
+DATABASE_URL secret: SSM SecureString /recallops/prod/DATABASE_URL
+```
+
+See [docs/deployment-ecs-express.md](docs/deployment-ecs-express.md) for the
+repeatable deployment notes, smoke checklist, cleanup instructions, cost notes,
+and final submission checklist.
+
 ## Demo seed data
 
-Milestone 14 includes a repeatable seed script for judge demos:
+RecallOps includes a repeatable seed script for judge demos:
 
 ```bash
 backend/.venv/bin/python -m dotenv -f .env run -- \
@@ -417,7 +453,7 @@ The difference from `POST /api/incidents/{incident_id}/analysis` is important:
 incident-only analysis uses only the selected incident, while
 `agent-recommendation` checks persistent CockroachDB memory first and asks
 Bedrock to reason with that bounded context. The endpoint is rate-limited and
-does not persist recommendations in this milestone.
+does not persist recommendations.
 
 ## Memory API examples
 
@@ -531,8 +567,8 @@ Supersession uses a dropdown of active memories rather than a raw replacement UU
 
 Rejected and superseded memories remain visible in the inspector, but feedback controls are disabled and the UI explains that inactive memories are preserved and excluded from future recall. Technical fields such as model IDs, dimensions, cosine distance, ranking formula, UUIDs, and timestamps are available under Advanced details instead of being primary card content. Raw memory vectors and query vectors are never displayed. The Memory Inspector is a visibility and management surface only; it is not an agent loop, MCP integration, automatic extraction system, deletion workflow, or deployment feature.
 
-The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and lifecycle workflows have stable storage. This milestone still does not implement memory deletion, automatic stale-memory detection, audit/event tables, or agent retrieval behavior.
+The supported MVP memory types are `resolution`, `failed_action`, `procedure`, and `observation`. The supported statuses are `active`, `superseded`, and `rejected`. Memory rows include `success_count`, `failure_count`, `status`, `superseded_by`, `superseded_at`, and `supersession_reason` so ranking, feedback, and lifecycle workflows have stable storage. The MVP does not implement memory deletion, automatic stale-memory detection, audit/event tables, or autonomous agent retrieval behavior.
 
-Known pre-deployment deferrals are intentional for the single-user demo: supersede concurrency/TOCTOU hardening, frontend API-client consolidation, and full automated CockroachDB vector-search integration coverage. Use the manual `EXPLAIN` and smoke checklist above before deployment work, and keep automated tests isolated from CockroachDB and Bedrock by default.
+Known MVP limitations are intentional for the single-user demo: supersede concurrency/TOCTOU hardening, frontend API-client consolidation, and full automated CockroachDB vector-search integration coverage are not complete. Use the manual `EXPLAIN` and smoke checklist above for deployment verification, and keep automated tests isolated from CockroachDB and Bedrock by default.
 
 Never commit `.env`, AWS access keys, session tokens, database URLs, or real provider payloads. AWS credentials should remain outside the repository in the standard AWS SDK credential provider chain.

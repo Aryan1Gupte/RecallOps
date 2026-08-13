@@ -255,7 +255,7 @@ ORDER BY
 ```
 
 The exact memories used by a single `agent-recommendation` response are not
-persisted in this milestone. Use the web app or API response for exact
+persisted. Use the web app or API response for exact
 per-request context. MCP can still inspect the active memory records that are
 eligible to influence the seeded checkout recommendation and the inactive
 records that should be excluded.
@@ -280,7 +280,7 @@ Keep the segment short: the point is to show that CockroachDB is both the
 runtime vector-memory store and the externally inspectable operational memory
 layer.
 
-## What MCP Should Not Do In This Milestone
+## Operational Guardrails
 
 - Do not run `INSERT`, `UPDATE`, `DELETE`, `ALTER`, `DROP`, `CREATE`, `GRANT`,
   `REVOKE`, or `SET CLUSTER SETTING`.

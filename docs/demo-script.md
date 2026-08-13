@@ -1,6 +1,6 @@
 # RecallOps demo script
 
-This script is for a short local demo before the first AWS deployment. It assumes the app is running locally with the configured CockroachDB and Bedrock access. Do not paste `.env`, database URLs, AWS credentials, provider payloads, or raw vectors into the demo.
+This script is for a short judge demo using either the public ECS Express deployment or a local production-mode run with the configured CockroachDB and Bedrock access. Do not paste `.env`, database URLs, AWS credentials, provider payloads, or raw vectors into the demo.
 
 ## Three-minute outline
 
